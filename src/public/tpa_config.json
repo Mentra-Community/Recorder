@@ -1,16 +1,16 @@
 {
-  "name": "Live Captions",
-  "description": "Live captions app for smart glasses.",
-  "version": "1.0.6",
+  "name": "Audio Recorder",
+  "description": "Records audio and saves recordings for later access.",
+  "version": "1.0.0",
   "settings": [
     {
       "type": "group",
-      "title": "Language settings"
+      "title": "Recording Settings"
     },
     {
       "key": "transcribe_language",
       "type": "select",
-      "label": "Transcribe language",
+      "label": "Recording Language",
       "defaultValue": "English",
       "options": [
         {
@@ -72,56 +72,54 @@
       ]
     },
     {
-      "type": "group",
-      "title": "Layout settings"
-    },
-    {
-      "key": "line_width",
+      "key": "audio_format",
       "type": "select",
-      "label": "Line width",
-      "defaultValue": "Medium",
+      "label": "Recording Format",
+      "defaultValue": "wav",
       "options": [
         {
-          "label": "Very Narrow",
-          "value": "Very Narrow"
+          "label": "WAV (High Quality)",
+          "value": "wav"
         },
         {
-          "label": "Narrow",
-          "value": "Narrow"
+          "label": "PCM (Raw Data)",
+          "value": "pcm"
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "title": "Voice Command Settings"
+    },
+    {
+      "key": "voice_command_sensitivity",
+      "type": "select",
+      "label": "Voice Command Sensitivity",
+      "defaultValue": "medium",
+      "options": [
+        {
+          "label": "Low",
+          "value": "low"
         },
         {
           "label": "Medium",
-          "value": "Medium"
+          "value": "medium"
         },
         {
-          "label": "Wide",
-          "value": "Wide"
+          "label": "High",
+          "value": "high"
         }
       ]
     },
     {
-      "key": "number_of_lines",
-      "type": "select",
-      "label": "Number of lines",
-      "defaultValue": 3,
-      "options": [
-        {
-          "label": "2",
-          "value": 2
-        },
-        {
-          "label": "3",
-          "value": 3
-        },
-        {
-          "label": "4",
-          "value": 4
-        },
-        {
-          "label": "5",
-          "value": 5
-        }
-      ]
+      "type": "group",
+      "title": "Email Settings"
+    },
+    {
+      "key": "backup_email",
+      "type": "text",
+      "label": "Backup Email (Optional)",
+      "defaultValue": ""
     }
   ]
 }

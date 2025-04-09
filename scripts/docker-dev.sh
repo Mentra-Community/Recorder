@@ -8,6 +8,14 @@ NC='\033[0m' # No Color
 
 echo -e "${YELLOW}Setting up Docker development environment...${NC}"
 
+# Load .env file variables
+if [ -f .env ]; then
+  echo -e "${GREEN}Loading environment variables from .env file${NC}"
+  export $(grep -v '^#' .env | xargs)
+  echo -e "${GREEN}External port set to: $EXTERNAL_PORT${NC}"
+  echo -e "${GREEN}Internal port set to: $INTERNAL_PORT${NC}"
+fi
+
 # Define the possible SDK location patterns
 POSSIBLE_SDK_PATHS=(
   "../../../AugmentOS/augmentos_cloud/packages/sdk"  # Current path used
@@ -39,6 +47,6 @@ else
   echo -e "${YELLOW}No local SDK found. Docker will use the published version.${NC}"
 fi
 
-# Run docker-compose
+# Run docker-compose with explicit env file reference
 echo "Starting Docker container..."
-docker-compose -f docker/docker-compose.dev.yml -p dev up "$@"
+docker-compose -f docker/docker-compose.dev.yml --env-file .env -p dev up "$@"

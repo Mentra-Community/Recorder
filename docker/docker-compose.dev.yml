@@ -7,18 +7,16 @@ services:
       dockerfile: docker/Dockerfile.dev
     container_name: debug-audio-dev
     ports:
-      - "8069:80"
+      - "${EXTERNAL_PORT:-80}:${INTERNAL_PORT:-80}"
     volumes:
       - ../src:/app/src:delegated
       - ../scripts:/app/scripts:delegated
-      # Conditional SDK volume (will be ignored if path doesn't exist)
-      - ${SDK_PATH:-/dev/null}:/app/node_modules/@augmentos/sdk:delegated
+      # Conditional SDK volume - only mount if SDK_PATH exists and is valid
+      - ${SDK_PATH:-/tmp}:/app/node_modules/@augmentos/sdk:delegated
       # Don't sync other node_modules back to host
       - /app/node_modules
     environment:
-      - PORT=80
-      - NODE_ENV=development
-      - CLOUD_HOST_NAME=cloud
+      - PORT=${INTERNAL_PORT:-80}
     command: ["bun", "run", "dev"]
     restart: "no"
     stdin_open: true

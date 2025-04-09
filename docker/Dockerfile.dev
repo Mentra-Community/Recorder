@@ -15,6 +15,3 @@ RUN ./scripts/setup-dev.sh
 
 # Expose the port
 EXPOSE 80
-
-# Note: Command is provided in docker-compose.dev.yml
-CMD ["bun", "--hot", "src/index.ts"]
