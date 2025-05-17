@@ -7,13 +7,11 @@ services:
       dockerfile: docker/Dockerfile.dev
     container_name: debug-audio-dev
     ports:
-      - "${EXTERNAL_PORT:-80}:${INTERNAL_PORT:-80}"
+      - "${EXTERNAL_PORT:-8069}:${INTERNAL_PORT:-80}"
     volumes:
       - ../src:/app/src:delegated
       - ../scripts:/app/scripts:delegated
-      # Conditional SDK volume - only mount if SDK_PATH exists and is valid
-      - ${SDK_PATH:-/tmp}:/app/node_modules/@augmentos/sdk:delegated
-      # Don't sync other node_modules back to host
+      # Don't sync node_modules back to host
       - /app/node_modules
     environment:
       - PORT=${INTERNAL_PORT:-80}

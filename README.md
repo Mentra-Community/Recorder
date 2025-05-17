@@ -1,96 +1,124 @@
-# AugmentOS Audio Recorder App 🎙️🎧
+# AugmentOS Voice Recorder
 
-A powerful audio recording application for AugmentOS smart glasses that captures audio, provides real-time transcription, and emails recordings to users.
+A simple, mobile-friendly voice recorder application for AugmentOS with real-time transcription streaming.
 
 ## Features
 
-- **Audio Recording**: Records audio from the smart glasses microphone in high-quality format
-- **Transcription**: Provides real-time transcription of the recording
-- **Timer Display**: Shows recording duration in the AR view
-- **Email Delivery**: Automatically sends recordings to the user when complete
-- **Multiple Languages**: Supports a wide range of transcription languages
-- **Web Interface**: Provides a browser-based interface for managing recordings
+- **Start/Stop Recording**: Record audio with a simple button press
+- **Real-time Transcription**: See transcripts as you speak with Server-Sent Events (SSE)
+- **Recordings Library**: View and play back previous recordings
+- **User-specific Storage**: Recordings are saved by userId for persistence across sessions
+- **Mobile-friendly Design**: Clean, responsive interface that works well on all devices
 
-## Requirements
+## Getting Started
 
-- AugmentOS-compatible smart glasses
-- Node.js 16+ and Bun
-- AugmentOS API Key
-- Resend API Key (for email delivery)
+### Prerequisites
 
-## Environment Variables
+- [Bun](https://bun.sh/) (JavaScript runtime and package manager)
+- AugmentOS SDK (automatically installed as a dependency)
 
-The following environment variables must be set:
-
-- `PACKAGE_NAME`: The package name registered in the AugmentOS developer console
-- `AUGMENTOS_API_KEY`: Your AugmentOS API key
-- `RESEND_API_KEY`: API key for the Resend email service
-- `PORT` (optional): Server port (defaults to 80)
-- `CLOUD_HOST_NAME` (optional): AugmentOS cloud host (defaults to prod.augmentos.org)
-- `RECORDINGS_DIR` (optional): Directory to store recordings (defaults to ~/augmentos-recordings)
-
-## Installation
+### Installation
 
 1. Clone the repository
 2. Install dependencies:
-   ```bash
-   bun install
-   ```
-3. Create a `.env` file with the required environment variables.
-4. Build the app:
-   ```bash
-   bun run build
-   ```
-
-## Development
-
-For local development:
 
 ```bash
-./scripts/docker-dev.sh
+# Install server dependencies
+cd server
+bun install
+
+# Install webview dependencies
+cd ../webview
+bun install
 ```
 
-This will start the app in a Docker container with hot reload enabled.
+## Running the Application
 
-## Usage
+### Development Mode
 
-1. Launch the app on your AugmentOS-compatible glasses
-2. The app will automatically start recording when opened
-3. A timer will display on the glasses showing the recording duration
-4. When the app is closed, the recording will be finalized and sent to your email
+For development with hot reloading:
 
-## Settings
+```bash
+# From the project root
+chmod +x dev.sh
+./dev.sh
+```
 
-The app provides several customizable settings:
+This will:
+- Start the frontend Vite dev server
+- Start the backend server in watch mode
+- Auto-configure for local development
 
-- **Recording Language**: Choose from various supported languages
-- **Recording Format**: Choose between WAV (high quality) and PCM (raw data)
-- **Email Delivery**: Toggle automatic email delivery of recordings
-- **Backup Email**: Specify an additional email to receive recordings
-- **Transcript Display**: Configure line width and number of lines for the transcript
+### Production Build
 
-## Webview Interface
+To build and run the production version:
 
-The app includes a web interface that can be accessed at `/webview`. The webview provides:
+```bash
+# From the project root
+chmod +x build-and-run.sh
+./build-and-run.sh
+```
 
-- List of all recordings with download options
-- Recording playback with transcription display
-- Settings management
-- Recording deletion
+This will:
+- Build the frontend assets
+- Build the backend server
+- Start the server with the production build
+
+## Architecture
+
+The application consists of two main parts:
+
+1. **Backend Server** (`server/`):
+   - Express.js server with AugmentOS TPA integration
+   - API endpoints for recordings and transcripts
+   - SSE for real-time transcript streaming
+   - Local file storage organized by user
+
+2. **Frontend App** (`webview/`):
+   - React application with TypeScript
+   - TailwindCSS for styling
+   - Mobile-first responsive design
+   - EventSource API for SSE connections
+
+## Folder Structure
+
+```
+recorder/
+├── server/                # Backend server
+│   ├── src/               # Source code
+│   │   ├── api/           # API endpoints
+│   │   ├── services/      # Business logic
+│   │   └── app.ts         # Main server entry point
+│   ├── temp_storage/      # Local file storage
+│   └── package.json       # Server dependencies
+├── webview/               # Frontend application
+│   ├── src/               # Source code
+│   │   ├── components/    # React components
+│   │   └── App.tsx        # Main application component
+│   ├── public/            # Static assets
+│   └── package.json       # Frontend dependencies
+├── dev.sh                 # Development script
+└── build-and-run.sh       # Production build script
+```
 
 ## API Endpoints
 
-The app exposes the following API endpoints for the webview:
+- `GET /api/recordings` - List user recordings
+- `POST /api/recordings/start` - Start a new recording
+- `POST /api/recordings/:id/stop` - Stop an active recording
+- `GET /api/recordings/:id/download` - Download a recording
+- `DELETE /api/recordings/:id` - Delete a recording
+- `GET /api/transcripts` - Get previous transcripts
+- `GET /api/transcripts/sse` - SSE endpoint for real-time transcripts
 
-- `GET /recordings/:userId`: Get a list of all recordings for a user
-- `GET /recordings/:userId/:filename`: Download a specific recording
-- `DELETE /recordings/:userId/:filename`: Delete a specific recording
-- `POST /settings`: Update user settings
+## Storage
 
-## License
+Recordings are stored on disk in the `server/temp_storage` directory, organized by userId for persistence.
 
-[MIT License](LICENSE)
+## Future Improvements
 
-## Credits
-
-Developed for AugmentOS by BallahTech
+- Migrate from local storage to Cloudflare R2 or similar cloud storage
+- Add authentication and user management
+- Implement recording categorization and tagging
+- Add audio visualization during recording
+- Support for multiple languages in transcription

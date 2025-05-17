@@ -1,56 +1,98 @@
-import { useState, useEffect } from "react";
-import { AuthForm } from "./components/AuthForm";
-import { LiveControlPanel } from "./components/LiveControlPanel";
-import { useAuth } from "./hooks/useAuth";
-import { Button } from "./components/ui/button";
-import { cn } from "./lib/utils";
+import React, { useState, useEffect } from 'react';
+import RecordingsListImproved from './screens/RecordingsListImproved';
+import RecordingImproved from './screens/RecordingImproved';
+import PlaybackImproved from './screens/PlaybackImproved';
 
-export default function App() {
-  const { isAuthenticated, user, isLoading, logout } = useAuth();
-  const [showAuth, setShowAuth] = useState(false);
+type Screen = 'list' | 'recording' | 'playback';
+
+// Mock recording data
+const mockRecordings = [
+  { id: 1, title: 'Weather Livingston', location: 'Conway Springs, Kansas', date: 'Dec 18', duration: '01:00' },
+  { id: 2, title: 'Interview with Claire', location: 'Cleveland, Ohio', date: 'Dec 16', duration: '35:00' },
+  { id: 3, title: 'Meeting notes with team Indigo', location: 'Lexington, Massachusetts', date: 'Dec 14', duration: '25:00' },
+  { id: 4, title: 'How to configure your augmented reality workspace', location: 'Raleigh, North Carolina', date: 'Dec 13', duration: '05:00' },
+  { id: 5, title: 'AR games discussion', location: 'Houston, Texas', date: 'Dec 12', duration: '17:00' },
+];
+
+const ImprovedApp: React.FC = () => {
+  const [currentScreen, setCurrentScreen] = useState<Screen>('list');
+  const [selectedRecordingId, setSelectedRecordingId] = useState<number | null>(null);
+  const [recordings, setRecordings] = useState(mockRecordings);
+  const [isRecording, setIsRecording] = useState(false);
+
+  // Navigation handlers
+  const navigateToList = () => {
+    setCurrentScreen('list');
+    setSelectedRecordingId(null);
+  };
+
+  const navigateToRecording = () => {
+    setIsRecording(true);
+    setCurrentScreen('recording');
+  };
+
+  const navigateToPlayback = (id: number) => {
+    setSelectedRecordingId(id);
+    setCurrentScreen('playback');
+  };
+
+  const handleStopRecording = () => {
+    setIsRecording(false);
+    // Simulate adding a new recording
+    const newRecording = {
+      id: recordings.length + 1,
+      title: `Recording ${new Date().toLocaleString()}`,
+      location: 'Current location',
+      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      duration: '00:45'
+    };
+    setRecordings([newRecording, ...recordings]);
+    navigateToList();
+  };
+
+  const handleDeleteRecording = (id: number) => {
+    // Remove recording from state
+    setRecordings(recordings.filter(recording => recording.id !== id));
+    // Navigate back to list
+    navigateToList();
+  };
+
+  // Render the appropriate screen
+  const renderScreen = () => {
+    switch (currentScreen) {
+      case 'recording':
+        return (
+          <RecordingImproved 
+            onBack={navigateToList} 
+            onStop={handleStopRecording} 
+          />
+        );
+      case 'playback':
+        return (
+          <PlaybackImproved 
+            recordingId={selectedRecordingId || undefined} 
+            onBack={navigateToList} 
+            onDelete={handleDeleteRecording} 
+          />
+        );
+      case 'list':
+      default:
+        return (
+          <RecordingsListImproved 
+            recordings={recordings}
+            onRecordingSelect={navigateToPlayback}
+            onNewRecording={navigateToRecording}
+          />
+        );
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="w-full py-4 px-6 border-b border-secondary">
-        <div className="flex justify-between items-center">
-          <h1 className="text-xl font-bold">Audio Recorder</h1>
-          {isAuthenticated && (
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-muted-foreground">
-                {user}
-              </span>
-              <Button variant="outline" size="sm" onClick={logout}>
-                Logout
-              </Button>
-            </div>
-          )}
-        </div>
-      </header>
-      
-      {/* Main content */}
-      <main className="flex-1 flex items-center justify-center p-6">
-        <div className={`w-full ${isAuthenticated ? "max-w-3xl" : "flex justify-center"}`}>
-          {isLoading ? (
-            <div className="flex justify-center">
-              <div className="animate-pulse bg-muted h-64 w-full max-w-md rounded-md" />
-            </div>
-          ) : isAuthenticated ? (
-            <LiveControlPanel />
-          ) : (
-            <AuthForm />
-          )}
-        </div>
-      </main>
-      
-      {/* Footer */}
-      <footer className="w-full py-4 px-6 border-t border-secondary">
-        <div className="max-w-6xl mx-auto">
-          <p className="text-center text-sm text-muted-foreground">
-            © {new Date().getFullYear()} Audio Recorder for AugmentOS
-          </p>
-        </div>
-      </footer>
+    <div>
+      {/* <UIToggle /> */}
+      {renderScreen()}
     </div>
   );
-}
+};
+
+export default ImprovedApp;

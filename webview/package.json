@@ -1,7 +1,7 @@
 {
-  "name": "developer-portal",
+  "name": "smart-glasses-notes",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "packageManager": "npm@10.8.3",
   "engines": {
@@ -11,7 +11,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "ngrok": "ngrok http --url=recorder-webview.ngrok.app 5173"
   },
   "dependencies": {
     "@augmentos/sdk": "^1.1.0",
