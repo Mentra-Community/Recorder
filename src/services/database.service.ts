@@ -19,10 +19,19 @@ class DatabaseService {
    */
   private async connect() {
     try {
-      // Connect to MongoDB - use environment variable or default local connection
-      await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/recorder');
-      this.connected = true;
-      console.log('[DATABASE] Connected to MongoDB');
+      // Use the MongoDB connection from the connections module
+      // The connection should be already established in app.ts
+      if (mongoose.connection.readyState === 1) {
+        this.connected = true;
+        console.log('[DATABASE] Using existing MongoDB connection');
+      } else {
+        // Fallback direct connection if needed
+        const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/recorder';
+        console.log('[DATABASE] Connecting to MongoDB:', uri);
+        await mongoose.connect(uri);
+        this.connected = true;
+        console.log('[DATABASE] Connected to MongoDB');
+      }
     } catch (error) {
       console.error('[DATABASE] MongoDB connection error:', error);
       console.log('[DATABASE] Will use in-memory store as fallback');
@@ -34,7 +43,7 @@ class DatabaseService {
    */
   private documentToInterface(doc: RecordingDocument): RecordingI {
     return {
-      id: doc.id,
+      id: doc._id.toString(), // Use MongoDB's _id as our primary identifier
       userId: doc.userId,
       sessionId: doc.sessionId,
       title: doc.title,
@@ -92,10 +101,21 @@ class DatabaseService {
     if (!this.connected) throw new Error('Database not connected');
     
     try {
-      const recording = await Recording.findOne({ id }).exec();
+      // Check if this is a valid MongoDB ObjectId
+      if (!id.match(/^[0-9a-f]{24}$/i)) {
+        console.log(`[DATABASE] Invalid MongoDB ObjectId: ${id}`);
+        return null;
+      }
       
-      if (!recording) return null;
+      // Find by MongoDB's _id field
+      const recording = await Recording.findById(id).exec();
       
+      if (!recording) {
+        console.log(`[DATABASE] Recording not found with id: ${id}`);
+        return null;
+      }
+      
+      console.log(`[DATABASE] Found recording with title: ${recording.title}`);
       return this.documentToInterface(recording);
     } catch (error) {
       console.error(`[DATABASE] Error getting recording ${id}:`, error);
@@ -110,9 +130,16 @@ class DatabaseService {
     if (!this.connected) throw new Error('Database not connected');
     
     try {
-      const recording = new Recording(data);
+      // Remove the id field from the data, as MongoDB will generate _id
+      const { id, ...recordingData } = data;
+      
+      // Create and save the new recording
+      const recording = new Recording(recordingData);
       await recording.save();
       
+      console.log(`[DATABASE] Created recording with MongoDB _id: ${recording._id}`);
+      
+      // Map back to our interface format
       return this.documentToInterface(recording);
     } catch (error) {
       console.error('[DATABASE] Error creating recording:', error);
@@ -127,13 +154,19 @@ class DatabaseService {
     if (!this.connected) throw new Error('Database not connected');
     
     try {
-      const updated = await Recording.findOneAndUpdate(
-        { id },
-        { ...updates, updatedAt: new Date() },
+      // Remove id from updates if present
+      const { id: _, ...updateData } = updates;
+      
+      const updated = await Recording.findByIdAndUpdate(
+        id,
+        { ...updateData, updatedAt: new Date() },
         { new: true }
       ).exec();
       
-      if (!updated) return null;
+      if (!updated) {
+        console.log(`[DATABASE] Recording not found for update: ${id}`);
+        return null;
+      }
       
       return this.documentToInterface(updated);
     } catch (error) {
@@ -149,8 +182,8 @@ class DatabaseService {
     if (!this.connected) throw new Error('Database not connected');
     
     try {
-      const result = await Recording.deleteOne({ id }).exec();
-      return result.deletedCount === 1;
+      const result = await Recording.findByIdAndDelete(id).exec();
+      return !!result;
     } catch (error) {
       console.error(`[DATABASE] Error deleting recording ${id}:`, error);
       throw error;

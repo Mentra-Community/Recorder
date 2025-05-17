@@ -6,6 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { AudioChunk, TpaSession, TranscriptionData, ViewType } from '@augmentos/sdk';
 import { RecordingI, RecordingStatus, AudioChunkI, TranscriptionDataI } from '../types/recordings.types';
+import mongoose from 'mongoose';
 import storageService from './storage.service';
 import streamService from './stream.service';
 import databaseService from './database.service';
@@ -105,16 +106,10 @@ class RecordingsService {
       return existingRecording.recordingId;
     }
     
-    // Create a new recording ID
-    const recordingId = `rec_${Date.now()}_${uuidv4().substring(0, 8)}`;
-    
     try {
-      // Initialize upload to storage service
-      await storageService.beginStreamingUpload(userId, recordingId);
-      
-      // Create recording in database
+      // Create recording in database first to get MongoDB _id
       const newRecording: RecordingI = {
-        id: recordingId,
+        id: '', // This will be set by MongoDB
         userId,
         sessionId,
         title: `Recording ${new Date().toLocaleString()}`,
@@ -126,13 +121,25 @@ class RecordingsService {
         updatedAt: new Date()
       };
       
-      // Use MongoDB if connected, otherwise fall back to in-memory store
+      // Save to database to get an ID
+      let savedRecording: RecordingI;
+      
       try {
-        await databaseService.createRecording(newRecording);
+        savedRecording = await databaseService.createRecording(newRecording);
+        console.log(`[RECORDING] Created recording in database with ID: ${savedRecording.id}`);
       } catch (error) {
         console.warn('[RECORDING] Failed to save to database, using in-memory store as fallback');
+        // When falling back to in-memory store, generate a MongoDB-like ObjectId
+        const fallbackId = new mongoose.Types.ObjectId().toString();
+        newRecording.id = fallbackId;
         store.recordings.createRecording(newRecording);
+        savedRecording = newRecording;
       }
+      
+      const recordingId = savedRecording.id;
+      
+      // Now initialize upload with the MongoDB ID
+      await storageService.beginStreamingUpload(userId, recordingId);
       
       // Track this recording
       this.activeRecordings.set(recordingId, {

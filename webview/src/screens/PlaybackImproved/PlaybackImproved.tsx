@@ -1,67 +1,117 @@
-import React, { useState } from 'react';
-import { ChevronLeft, Share, Download, Trash2, Volume2, Play, Pause } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ChevronLeft, Share, Download, Trash2, Volume2 } from 'lucide-react';
+import { RecordingI } from '../../types/recording';
+import { useAudioPlayer } from '../../hooks/useAudioPlayer';
+import { formatDuration } from '../../utils/formatters';
 
 interface PlaybackImprovedProps {
   onBack?: () => void;
-  onDelete?: (id: number) => void;
-  recordingId?: number;
-}
-
-interface RecordingData {
-  id: number;
-  title: string;
-  location: string;
-  date: string;
-  duration: string;
-  transcript: string;
+  onDelete?: (id: string) => Promise<void>;
+  recordingId?: string;
+  recording?: RecordingI;
+  getDownloadUrl?: (id: string) => string;
 }
 
 const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({ 
-  recordingId = 3, 
+  recordingId, 
+  recording,
   onBack, 
-  onDelete 
+  onDelete,
+  getDownloadUrl
 }) => {
-  const [currentTime, setCurrentTime] = useState("00:46.5");
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [progress, setProgress] = useState(60); // Progress percentage (0-100)
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
-  // Mock data for the recording
-  const recording: RecordingData = {
-    id: recordingId,
-    title: "News Recording",
-    location: "Conway Springs, Kansas",
-    date: "Dec 18",
-    duration: "02:34",
-    transcript: "above the law and he should be impeached for this as well. Congress cannot wait for the next election to address this misconduct. President Trump has demonstrated the clear pattern of wrongdoing. This is not the first time he has solicited foreign interference in an election, has been exposed and has attempted to obstruct the resulting investigation. We cannot rely on the next election as a remedy for presidential misconduct when the president threatens the very integrity of that election."
-  };
-
-  // Toggle play/pause
-  const togglePlayback = () => {
-    setIsPlaying(!isPlaying);
-  };
-
-  const handleBack = () => {
-    if (onBack) onBack();
-  };
-
-  const handleDelete = () => {
-    if (onDelete) onDelete(recording.id);
-  };
-
+  const { 
+    isPlaying, 
+    currentTime, 
+    duration, 
+    loadAudio, 
+    toggle, 
+    seek 
+  } = useAudioPlayer();
+  
+  const [progress, setProgress] = useState(0);
+  
+  // Load audio when component mounts or recordingId changes
+  useEffect(() => {
+    if (!recording || !recordingId || !getDownloadUrl) {
+      return;
+    }
+    
+    setIsLoading(true);
+    
+    const url = getDownloadUrl(recordingId);
+    
+    loadAudio(url)
+      .then(() => setIsLoading(false))
+      .catch((err) => {
+        console.error('Error loading audio:', err);
+        setError('Failed to load audio');
+        setIsLoading(false);
+      });
+  }, [recordingId, recording, getDownloadUrl, loadAudio]);
+  
+  // Update progress when currentTime changes
+  useEffect(() => {
+    if (duration > 0) {
+      setProgress((currentTime / duration) * 100);
+    }
+  }, [currentTime, duration]);
+  
   // Handle scrubber change
   const handleScrubberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newProgress = parseInt(e.target.value);
     setProgress(newProgress);
     
     // Update current time based on progress
-    // This is a mock calculation; in a real app, this would convert based on actual duration
-    const totalSeconds = 154; // 2:34 in seconds
-    const currentSeconds = Math.floor(totalSeconds * (newProgress / 100));
-    const minutes = Math.floor(currentSeconds / 60).toString().padStart(2, '0');
-    const seconds = Math.floor(currentSeconds % 60).toString().padStart(2, '0');
-    const tenths = Math.floor(Math.random() * 10); // Random for demo
-    setCurrentTime(`${minutes}:${seconds}.${tenths}`);
+    if (duration > 0) {
+      const newTime = (duration * newProgress) / 100;
+      seek(newTime);
+    }
   };
+
+  const handleBack = () => {
+    if (onBack) onBack();
+  };
+
+  const handleDelete = async () => {
+    if (onDelete && recordingId) {
+      try {
+        await onDelete(recordingId);
+      } catch (error) {
+        console.error('Failed to delete recording:', error);
+      }
+    }
+  };
+
+  const handleDownload = () => {
+    if (recordingId && getDownloadUrl) {
+      const url = getDownloadUrl(recordingId);
+      window.open(url, '_blank');
+    }
+  };
+
+  // If we don't have a recording yet, show loading
+  if (!recording) {
+    return (
+      <div className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          {isLoading ? (
+            <div>Loading recording...</div>
+          ) : (
+            <div className="text-red-500">{error || 'Recording not found'}</div>
+          )}
+          <button 
+            className="mt-4 px-4 py-2 bg-gray-200 rounded" 
+            onClick={handleBack}
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
@@ -77,7 +127,7 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
           <button className="text-gray-600">
             <Share size={22} />
           </button>
-          <button className="text-gray-600">
+          <button className="text-gray-600" onClick={handleDownload}>
             <Download size={22} />
           </button>
           <button className="text-gray-600" onClick={handleDelete}>
@@ -89,10 +139,10 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
       {/* Recording metadata */}
       <div className="px-4 py-3 flex items-center justify-between border-b border-gray-300 bg-gray-50">
         <div className="text-gray-600">
-          {recording.date} • {recording.location}
+          {new Date(recording.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
         </div>
         <div className="flex items-center">
-          <span className="text-gray-600 mr-2">{recording.duration}</span>
+          <span className="text-gray-600 mr-2">{formatDuration(recording.duration)}</span>
           <button className="w-8 h-8 flex items-center justify-center rounded-full bg-white shadow-sm border border-gray-300">
             <Volume2 size={16} className="text-gray-600" />
           </button>
@@ -106,7 +156,7 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
           <span className="text-xs text-gray-400">English (US)</span>
         </div>
         <p className="text-gray-800 leading-relaxed">
-          {recording.transcript}
+          {recording.transcript || 'No transcript available'}
         </p>
       </div>
       
@@ -125,11 +175,12 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
         </div>
         
         <div className="text-center mb-2">
-          <span className="font-mono">{currentTime}</span>
+          <span className="font-mono">{formatDuration(currentTime)}</span>
         </div>
         
         <button
-          onClick={togglePlayback}
+          onClick={toggle}
+          disabled={isLoading}
           className="w-16 h-16 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-md"
         >
           {isPlaying ? (
@@ -138,7 +189,9 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
               <div className="w-2 h-6 bg-white mx-0.5"></div>
             </div>
           ) : (
-            <Pause size={24} />
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M5 4.99989L19 12L5 19.0001V4.99989Z" fill="white"/>
+            </svg>
           )}
         </button>
       </div>

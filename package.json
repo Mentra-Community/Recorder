@@ -4,7 +4,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "bun run dev:concurrent",
-    "dev:server": "bun --hot src/app.ts",
+    "dev:server": "bun --watch src/app.ts",
     "dev:webview": "cd webview && bun run dev",
     "dev:concurrent": "bun run clean-wav-files && bun run dev:webview & bun run dev:server",
     "dev:build": "cd webview && bun run build && cd .. && bun --hot server/src/app.ts",
@@ -46,6 +46,7 @@
     "@types/ws": "^8.18.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
     "express": "^4.21.2",
     "http-proxy": "^1.18.1",
     "jsonwebtoken": "^9.0.2",

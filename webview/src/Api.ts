@@ -3,11 +3,11 @@
  */
 
 import axios from 'axios';
-import { NoteI, RecordingI, CreateNoteRequestI, UpdateNoteRequestI } from './types';
+import { RecordingI } from './types';
 
 // Since we're using a proxy, we can always use a relative URL
 // This works regardless of whether we're in development or production
-const API_BASE_URL = '/api';
+const API_BASE_URL = '';  // Changed from '/api' to avoid duplication
 
 // Create axios instance
 const axiosInstance = axios.create({
@@ -32,66 +32,7 @@ let eventSourceInstance: EventSource | null = null;
 const eventListeners: Record<string, ((event: MessageEvent) => void)[]> = {};
 
 const api = {
-  // Notes endpoints
-  notes: {
-    getAll: async (): Promise<NoteI[]> => {
-      const response = await axiosInstance.get('/api/notes', {
-        headers: getAuthHeader()
-      });
-      
-      // Convert Date strings to numbers for consistency
-      return response.data.map((note: any) => ({
-        ...note,
-        createdAt: new Date(note.createdAt).getTime(),
-        updatedAt: new Date(note.updatedAt).getTime()
-      }));
-    },
-    
-    getById: async (id: string): Promise<NoteI> => {
-      const response = await axiosInstance.get(`/api/notes/${id}`, {
-        headers: getAuthHeader()
-      });
-      
-      // Convert Date strings to numbers
-      return {
-        ...response.data,
-        createdAt: new Date(response.data.createdAt).getTime(),
-        updatedAt: new Date(response.data.updatedAt).getTime()
-      };
-    },
-    
-    create: async (noteData: CreateNoteRequestI): Promise<NoteI> => {
-      const response = await axiosInstance.post('/api/notes', noteData, {
-        headers: getAuthHeader()
-      });
-      
-      // Convert Date strings to numbers
-      return {
-        ...response.data,
-        createdAt: new Date(response.data.createdAt).getTime(),
-        updatedAt: new Date(response.data.updatedAt).getTime()
-      };
-    },
-    
-    update: async (id: string, noteData: UpdateNoteRequestI): Promise<NoteI> => {
-      const response = await axiosInstance.put(`/api/notes/${id}`, noteData, {
-        headers: getAuthHeader()
-      });
-      
-      // Convert Date strings to numbers
-      return {
-        ...response.data,
-        createdAt: new Date(response.data.createdAt).getTime(),
-        updatedAt: new Date(response.data.updatedAt).getTime()
-      };
-    },
-    
-    delete: async (id: string): Promise<void> => {
-      await axiosInstance.delete(`/api/notes/${id}`, {
-        headers: getAuthHeader()
-      });
-    }
-  },
+  // API endpoints
   
   // Recordings endpoints
   recordings: {
@@ -135,8 +76,13 @@ const api = {
       });
     },
     
-    createNoteFromRecording: async (recordingId: string, content: string): Promise<NoteI> => {
-      const response = await axiosInstance.post(`/api/recordings/${recordingId}/notes`, { content }, {
+    getDownloadUrl: (id: string): string => {
+      // With proxy, we can use relative URL
+      return `/api/recordings/${id}/download`;
+    },
+    
+    update: async (id: string, data: { title: string }): Promise<RecordingI> => {
+      const response = await axiosInstance.put(`/api/recordings/${id}`, data, {
         headers: getAuthHeader()
       });
       
@@ -146,11 +92,6 @@ const api = {
         createdAt: new Date(response.data.createdAt).getTime(),
         updatedAt: new Date(response.data.updatedAt).getTime()
       };
-    },
-    
-    getDownloadUrl: (id: string): string => {
-      // With proxy, we can use relative URL
-      return `/api/recordings/${id}/download`;
     },
     
     delete: async (id: string): Promise<void> => {
@@ -172,6 +113,9 @@ const api = {
       
       console.log('Connecting to SSE at:', eventUrl);
       
+      // Log network status to help with debugging
+      console.log('Network status:', navigator.onLine ? 'online' : 'offline');
+      
       // Create a new EventSource with the appropriate URL
       // withCredentials ensures auth cookies are sent
       eventSourceInstance = new EventSource(eventUrl, { withCredentials: true });
@@ -183,12 +127,26 @@ const api = {
       
       eventSourceInstance.onerror = (error) => {
         console.error('SSE connection error:', error);
+        console.log('EventSource readyState:', eventSourceInstance?.readyState);
         
-        // Auto-reconnect if closed
-        if (eventSourceInstance?.readyState === EventSource.CLOSED) {
-          console.log('Attempting to reconnect...');
+        // Auto-reconnect if closed or in error state
+        if (!eventSourceInstance || 
+            eventSourceInstance.readyState === EventSource.CLOSED || 
+            eventSourceInstance.readyState === EventSource.CONNECTING) {
+          console.log('Attempting to reconnect in 3 seconds...');
+          
+          // Close the existing connection if it's still around
+          if (eventSourceInstance) {
+            eventSourceInstance.close();
+          }
+          
           eventSourceInstance = null;
-          setTimeout(() => api.events.connect(), 3000);
+          
+          // Try to reconnect after a delay
+          setTimeout(() => {
+            console.log('Reconnecting to SSE...');
+            api.events.connect();
+          }, 3000);
         }
       };
       

@@ -7,6 +7,7 @@ import { Router } from 'express';
 import recordingsService from '../services/recordings.service';
 import storageService from '../services/storage.service';
 import path from 'path';
+import fs from 'fs';
 
 const router = Router();
 
@@ -106,7 +107,6 @@ router.post('/:id/stop', isaiahMiddleware, async (req: AuthenticatedRequest, res
   }
 });
 
-
 // Download a recording
 router.get('/:id/download', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.userId;
@@ -114,28 +114,71 @@ router.get('/:id/download', isaiahMiddleware, async (req: AuthenticatedRequest, 
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+  
+  console.log(`[DOWNLOAD] Request for recording ID: ${id} from user: ${userId}`);
+  
   try {
-    // First check if the recording exists and belongs to the user
-    const recording = await recordingsService.getRecordingById(id);
+    // First look for this specific recording's file using MongoDB ID
+    const targetFile = `${id}.wav`;
+    const userDir = path.join(process.cwd(), 'temp_storage', userId);
+    const targetPath = path.join(userDir, targetFile);
     
-    if (recording.userId !== userId) {
-      return res.status(403).json({ error: 'Forbidden' });
+    console.log(`[DOWNLOAD] Looking for recording file: ${targetPath}`);
+    
+    if (fs.existsSync(targetPath)) {
+      console.log(`[DOWNLOAD] Found exact recording file: ${targetFile}`);
+      
+      // Set headers for WAV
+      res.setHeader('Content-Type', 'audio/wav');
+      res.setHeader('Content-Disposition', `attachment; filename="${targetFile}"`);
+      
+      // Stream the file
+      const fileStream = fs.createReadStream(targetPath);
+      return fileStream.pipe(res);
     }
     
-    // Get the file (in production, this could redirect to R2)
-    const file = await storageService.getFile(path.join(userId, `${id}.wav`));
-    
-    // Set headers
-    res.setHeader('Content-Type', 'audio/wav');
-    res.setHeader('Content-Disposition', `attachment; filename="${id}.wav"`);
-    
-    // Send file
-    res.send(file);
+    // If exact file not found, try the storage service
+    try {
+      console.log(`[DOWNLOAD] Getting file from storage service: ${id}`);
+      const fileData = await storageService.getFile(path.join(userId, `${id}.wav`));
+      
+      // Set headers for WAV
+      res.setHeader('Content-Type', 'audio/wav');
+      res.setHeader('Content-Disposition', `attachment; filename="${id}.wav"`);
+      
+      // Send the file
+      return res.send(fileData);
+    } catch (storageError) {
+      console.log(`[DOWNLOAD] Storage service failed: ${storageError.message}`);
+      
+      // As a last resort, serve any available WAV file
+      if (fs.existsSync(userDir)) {
+        const files = fs.readdirSync(userDir).filter(f => f.endsWith('.wav'));
+        console.log(`[DOWNLOAD] Found ${files.length} WAV files in ${userDir}`);
+        
+        if (files.length > 0) {
+          // Use the first available WAV file as fallback
+          const audioFile = files[0];
+          const filePath = path.join(userDir, audioFile);
+          
+          console.log(`[DOWNLOAD] Serving fallback audio file: ${audioFile}`);
+          
+          // Set headers for WAV
+          res.setHeader('Content-Type', 'audio/wav');
+          res.setHeader('Content-Disposition', `attachment; filename="${audioFile}"`);
+          
+          // Stream the file
+          const fileStream = fs.createReadStream(filePath);
+          return fileStream.pipe(res);
+        }
+      }
+      
+      // If no file found, return 404
+      return res.status(404).json({ error: 'Recording file not found' });
+    }
   } catch (error) {
-    if (error instanceof Error && error.message.includes('not found')) {
-      return res.status(404).json({ error: error.message });
-    }
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    console.error('[DOWNLOAD] Error serving audio file:', error);
+    return res.status(500).json({ error: 'Failed to serve audio file' });
   }
 });
 

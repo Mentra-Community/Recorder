@@ -11,8 +11,10 @@ import fs from 'fs';
 import recordingsApi from './api/recordings.api';
 import transcriptsApi from './api/transcripts.api';
 import filesApi from './api/files.api';
+import eventsApi from './api/events.api';
 import streamService from './services/stream.service';
 import recordingsService from './services/recordings.service';
+import * as mongodbConnection from './connections/mongodb.connection';
 
 /**
  * Custom TPA Server for the Recorder App
@@ -112,6 +114,7 @@ class RecorderServer extends TpaServer {
     this.expressApp.use('/api/recordings', recordingsApi);
     this.expressApp.use('/api/transcripts', transcriptsApi);
     this.expressApp.use('/api/files', filesApi);
+    this.expressApp.use('/api/events', eventsApi);
   }
   
   /**
@@ -256,14 +259,28 @@ class RecorderServer extends TpaServer {
 // Create and start the server
 const server = new RecorderServer();
 
-server.start().then(() => {
-  console.log(`[STARTUP] TPA server running on port ${process.env.PORT || 8069}`);
-  console.log(`[CONFIG] Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`[CONFIG] Package Name: ${process.env.PACKAGE_NAME || 'com.augmentos.recorder'}`);
-}).catch(error => {
-  console.error('[ERROR] Failed to start server:', error);
-  process.exit(1);
-});
+// Initialize MongoDB connection first, then start the server
+mongodbConnection.init()
+  .then(() => {
+    return server.start();
+  })
+  .then(() => {
+    console.log(`[STARTUP] TPA server running on port ${process.env.PORT || 8069}`);
+    console.log(`[CONFIG] Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`[CONFIG] Package Name: ${process.env.PACKAGE_NAME || 'com.augmentos.recorder'}`);
+  })
+  .catch(error => {
+    console.error('[ERROR] Failed to start server:', error);
+    console.log('[STARTUP] Starting server without MongoDB connection...');
+    
+    // Try to start the server anyway, with fallback to in-memory storage
+    server.start().then(() => {
+      console.log(`[STARTUP] TPA server running on port ${process.env.PORT || 8069} (without MongoDB)`);
+    }).catch(serverError => {
+      console.error('[ERROR] Failed to start server:', serverError);
+      process.exit(1);
+    });
+  });
 
 console.log("TESTING2");
 export default server.getExpressApp();

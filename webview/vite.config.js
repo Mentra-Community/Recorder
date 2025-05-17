@@ -35,6 +35,18 @@ export default defineConfig({
                 target: 'http://localhost:8069',
                 changeOrigin: true,
                 secure: false,
+                // Add additional debug information for troubleshooting
+                configure: function (proxy, _options) {
+                    proxy.on('error', function (err, _req, _res) {
+                        console.log('proxy error', err);
+                    });
+                    proxy.on('proxyReq', function (proxyReq, req, _res) {
+                        console.log('Sending Request:', req.method, req.url);
+                    });
+                    proxy.on('proxyRes', function (proxyRes, req, _res) {
+                        console.log('Received Response:', proxyRes.statusCode, req.url);
+                    });
+                }
             }
         },
         // Improved headers for websocket support
