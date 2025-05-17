@@ -1,124 +1,136 @@
-# AugmentOS Voice Recorder
+# AugmentOS Recorder
 
-A simple, mobile-friendly voice recorder application for AugmentOS with real-time transcription streaming.
+A voice recorder application for AugmentOS glasses, providing voice recording and transcription capabilities with a clean, user-friendly interface.
 
 ## Features
 
-- **Start/Stop Recording**: Record audio with a simple button press
-- **Real-time Transcription**: See transcripts as you speak with Server-Sent Events (SSE)
-- **Recordings Library**: View and play back previous recordings
-- **User-specific Storage**: Recordings are saved by userId for persistence across sessions
-- **Mobile-friendly Design**: Clean, responsive interface that works well on all devices
+- Record audio from AugmentOS glasses
+- Real-time transcription of recorded audio
+- Voice commands for starting and stopping recordings
+- Rename recordings
+- View and play recordings
+- Dual storage system: local filesystem + Cloudflare R2
+- MongoDB database for metadata
 
-## Getting Started
+## Architecture
+
+### Backend (Node.js + Express)
+
+- Built with Express and TypeScript
+- Extends the AugmentOS SDK's TpaServer
+- Provides REST APIs for managing recordings
+- Real-time updates via Server-Sent Events (SSE)
+- Integrated with AugmentOS SDK for voice commands
+
+### Frontend (React)
+
+- React-based webview UI
+- Streamlined, accessible interface
+- Real-time updates via SSE
+- Clean, modern UI with Tailwind CSS
+
+### Storage
+
+The application uses a dual storage system:
+
+1. **Local Filesystem**
+   - Recordings are saved to the local filesystem for development and quick access
+   - Files are stored in `./temp_storage/<userId>/<recordingId>.wav`
+
+2. **Cloudflare R2**
+   - Cloud storage for production use
+   - S3-compatible API
+   - Secure, cost-effective storage
+
+3. **MongoDB**
+   - Stores recording metadata (title, duration, transcript, etc.)
+   - Provides efficient querying and indexing
+
+## Setup
 
 ### Prerequisites
 
-- [Bun](https://bun.sh/) (JavaScript runtime and package manager)
-- AugmentOS SDK (automatically installed as a dependency)
+- Node.js 16+ / Bun
+- MongoDB (local or remote)
+- Cloudflare R2 bucket (optional for development)
 
 ### Installation
 
 1. Clone the repository
 2. Install dependencies:
+   ```
+   npm install
+   ```
+3. Copy the example environment file and customize:
+   ```
+   cp .env.example .env
+   ```
+4. Update environment variables in `.env` file
+5. Start the development server:
+   ```
+   npm run dev
+   ```
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Server port | 8069 |
+| `MONGODB_URI` | MongoDB connection string | mongodb://localhost:27017/recorder |
+| `USE_LOCAL_DISK` | Whether to use local filesystem | true |
+| `LOCAL_STORAGE_PATH` | Path for local storage | ./temp_storage |
+| `R2_ACCESS_KEY_ID` | Cloudflare R2 access key | - |
+| `R2_SECRET_ACCESS_KEY` | Cloudflare R2 secret key | - |
+| `R2_BUCKET_NAME` | R2 bucket name | recorder |
+| `R2_ENDPOINT` | R2 endpoint URL | - |
+| `R2_PUBLIC_URL` | Public URL for R2 bucket | - |
+
+## Development
+
+### Running the Development Server
 
 ```bash
-# Install server dependencies
-cd server
-bun install
-
-# Install webview dependencies
-cd ../webview
-bun install
+npm run dev
 ```
 
-## Running the Application
+This will start both the backend server and frontend development server concurrently. The backend will auto-reload when changes are made.
 
-### Development Mode
-
-For development with hot reloading:
+### Docker Development Environment
 
 ```bash
-# From the project root
-chmod +x dev.sh
-./dev.sh
+npm run docker:dev
 ```
 
-This will:
-- Start the frontend Vite dev server
-- Start the backend server in watch mode
-- Auto-configure for local development
-
-### Production Build
-
-To build and run the production version:
-
-```bash
-# From the project root
-chmod +x build-and-run.sh
-./build-and-run.sh
-```
-
-This will:
-- Build the frontend assets
-- Build the backend server
-- Start the server with the production build
-
-## Architecture
-
-The application consists of two main parts:
-
-1. **Backend Server** (`server/`):
-   - Express.js server with AugmentOS TPA integration
-   - API endpoints for recordings and transcripts
-   - SSE for real-time transcript streaming
-   - Local file storage organized by user
-
-2. **Frontend App** (`webview/`):
-   - React application with TypeScript
-   - TailwindCSS for styling
-   - Mobile-first responsive design
-   - EventSource API for SSE connections
-
-## Folder Structure
-
-```
-recorder/
-├── server/                # Backend server
-│   ├── src/               # Source code
-│   │   ├── api/           # API endpoints
-│   │   ├── services/      # Business logic
-│   │   └── app.ts         # Main server entry point
-│   ├── temp_storage/      # Local file storage
-│   └── package.json       # Server dependencies
-├── webview/               # Frontend application
-│   ├── src/               # Source code
-│   │   ├── components/    # React components
-│   │   └── App.tsx        # Main application component
-│   ├── public/            # Static assets
-│   └── package.json       # Frontend dependencies
-├── dev.sh                 # Development script
-└── build-and-run.sh       # Production build script
-```
+This starts the application in a Docker container for an isolated development environment.
 
 ## API Endpoints
 
-- `GET /api/recordings` - List user recordings
+### Recordings
+
+- `GET /api/recordings` - Get all recordings for authenticated user
+- `GET /api/recordings/:id` - Get a specific recording
 - `POST /api/recordings/start` - Start a new recording
 - `POST /api/recordings/:id/stop` - Stop an active recording
-- `GET /api/recordings/:id/download` - Download a recording
+- `PUT /api/recordings/:id` - Update recording (e.g., rename)
+- `GET /api/recordings/:id/download` - Download recording audio
 - `DELETE /api/recordings/:id` - Delete a recording
-- `GET /api/transcripts` - Get previous transcripts
-- `GET /api/transcripts/sse` - SSE endpoint for real-time transcripts
 
-## Storage
+## Real-time Events
 
-Recordings are stored on disk in the `server/temp_storage` directory, organized by userId for persistence.
+The application uses Server-Sent Events (SSE) for real-time updates:
 
-## Future Improvements
+- `transcript` - Real-time transcript updates
+- `recording-status` - Recording status changes
+- `recording-error` - Error notifications
+- `recording-deleted` - Recording deletion notifications
 
-- Migrate from local storage to Cloudflare R2 or similar cloud storage
-- Add authentication and user management
-- Implement recording categorization and tagging
-- Add audio visualization during recording
-- Support for multiple languages in transcription
+## Voice Commands
+
+The application supports the following voice commands via AugmentOS glasses:
+
+- "Start recording" - Starts a new recording
+- "Stop recording" - Stops the current recording
+
+## License
+
+[MIT License](LICENSE)

@@ -6,9 +6,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import { AudioChunk, TpaSession, TranscriptionData, ViewType } from '@augmentos/sdk';
 import { RecordingI, RecordingStatus, AudioChunkI, TranscriptionDataI } from '../types/recordings.types';
-import { NoteI } from '../types/notes.types';
 import storageService from './storage.service';
 import streamService from './stream.service';
+import databaseService from './database.service';
 import store from '../models/in-memory-store';
 
 class RecordingsService {
@@ -112,7 +112,7 @@ class RecordingsService {
       // Initialize upload to storage service
       await storageService.beginStreamingUpload(userId, recordingId);
       
-      // Create recording in store
+      // Create recording in database
       const newRecording: RecordingI = {
         id: recordingId,
         userId,
@@ -126,7 +126,13 @@ class RecordingsService {
         updatedAt: new Date()
       };
       
-      store.recordings.createRecording(newRecording);
+      // Use MongoDB if connected, otherwise fall back to in-memory store
+      try {
+        await databaseService.createRecording(newRecording);
+      } catch (error) {
+        console.warn('[RECORDING] Failed to save to database, using in-memory store as fallback');
+        store.recordings.createRecording(newRecording);
+      }
       
       // Track this recording
       this.activeRecordings.set(recordingId, {
@@ -158,7 +164,7 @@ class RecordingsService {
    * Process an audio chunk
    */
   async processAudioChunk(recordingId: string, chunk: AudioChunk): Promise<void> {
-    // Log audio chunk sizes periodically (every 10th chunk)
+    // Log audio chunk sizes periodically
     if (Math.random() < 0.1) {
       console.log(`[AUDIO] Processing chunk for recording ${recordingId}, size: ${chunk.arrayBuffer.byteLength} bytes`);
     }
@@ -178,10 +184,19 @@ class RecordingsService {
       if (partUploaded) {
         const currentDuration = Math.round((Date.now() - recording.startTime) / 1000);
         
-        store.recordings.updateRecording(recordingId, {
-          duration: currentDuration,
-          updatedAt: new Date()
-        });
+        // Update recording duration - try database first, then fallback to in-memory
+        try {
+          await databaseService.updateRecording(recordingId, {
+            duration: currentDuration,
+            updatedAt: new Date()
+          });
+        } catch (error) {
+          console.warn('[RECORDING] Failed to update database, using in-memory store as fallback');
+          store.recordings.updateRecording(recordingId, {
+            duration: currentDuration,
+            updatedAt: new Date()
+          });
+        }
         
         // Send update to client
         streamService.broadcastToUser(recording.userId, 'recording-status', {
@@ -204,11 +219,19 @@ class RecordingsService {
     if (!recording) return;
     
     try {
-      // Update in store
-      store.recordings.updateRecording(recordingId, {
-        transcript: text,
-        updatedAt: new Date()
-      });
+      // Update in database or store
+      try {
+        await databaseService.updateRecording(recordingId, {
+          transcript: text,
+          updatedAt: new Date()
+        });
+      } catch (error) {
+        console.warn('[RECORDING] Failed to update transcript in database, using in-memory store');
+        store.recordings.updateRecording(recordingId, {
+          transcript: text,
+          updatedAt: new Date()
+        });
+      }
       
       // Send to clients
       streamService.broadcastToUser(recording.userId, 'transcript', {
@@ -237,16 +260,22 @@ class RecordingsService {
       // Complete the storage upload
       const fileUrl = await storageService.completeUpload(recordingId);
       
-      // Update recording in store
+      // Update recording in database or store
       const duration = Math.round((Date.now() - recording.startTime) / 1000);
-      
-      const updatedRecording = store.recordings.updateRecording(recordingId, {
+      const updates = {
         isRecording: false,
         status: RecordingStatus.COMPLETED,
         fileUrl,
         duration,
         updatedAt: new Date()
-      });
+      };
+      
+      try {
+        await databaseService.updateRecording(recordingId, updates);
+      } catch (error) {
+        console.warn('[RECORDING] Failed to update database, using in-memory store');
+        store.recordings.updateRecording(recordingId, updates);
+      }
       
       // Clean up
       this.activeRecordings.delete(recordingId);
@@ -265,12 +294,19 @@ class RecordingsService {
       console.error(`Error stopping recording ${recordingId}:`, error);
       
       // Update with error status
-      store.recordings.updateRecording(recordingId, {
+      const errorUpdate = {
         isRecording: false,
         status: RecordingStatus.ERROR,
         error: error instanceof Error ? error.message : String(error),
         updatedAt: new Date()
-      });
+      };
+      
+      try {
+        await databaseService.updateRecording(recordingId, errorUpdate);
+      } catch (dbError) {
+        console.warn('[RECORDING] Failed to update error in database, using in-memory store');
+        store.recordings.updateRecording(recordingId, errorUpdate);
+      }
       
       // Clean up anyway
       this.activeRecordings.delete(recordingId);
@@ -283,49 +319,22 @@ class RecordingsService {
     }
   }
   
-  /**
-   * Create a note from a recording
-   */
-  async createNoteFromRecording(recordingId: string, content: string): Promise<NoteI> {
-    try {
-      // Find the recording
-      const recording = store.recordings.findRecordingById(recordingId);
-      
-      if (!recording) {
-        throw new Error(`Recording ${recordingId} not found`);
-      }
-      
-      // Create a new note
-      const noteId = `note_${Date.now()}_${uuidv4().substring(0, 8)}`;
-      
-      const note: NoteI = {
-        id: noteId,
-        userId: recording.userId,
-        content: content || recording.transcript,
-        sourceRecordingId: recordingId,
-        tags: [],
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      
-      store.notes.createNote(note);
-      
-      // Notify clients
-      streamService.broadcastToUser(recording.userId, 'note', note);
-      
-      return note;
-    } catch (error) {
-      console.error(`Error creating note from recording ${recordingId}:`, error);
-      throw error;
-    }
-  }
   
   /**
    * Get recordings for a user
    */
   async getRecordingsForUser(userId: string): Promise<RecordingI[]> {
     try {
-      const recordings = store.recordings.findRecordingsByUser(userId);
+      let recordings: RecordingI[] = [];
+      
+      try {
+        // Try database first
+        recordings = await databaseService.getRecordings(userId);
+      } catch (error) {
+        console.warn('[RECORDING] Failed to get recordings from database, using in-memory store');
+        recordings = store.recordings.findRecordingsByUser(userId);
+      }
+      
       return recordings;
     } catch (error) {
       console.error(`Error getting recordings for user ${userId}:`, error);
@@ -338,7 +347,15 @@ class RecordingsService {
    */
   async getRecordingById(recordingId: string): Promise<RecordingI> {
     try {
-      const recording = store.recordings.findRecordingById(recordingId);
+      let recording: RecordingI | null = null;
+      
+      try {
+        // Try database first
+        recording = await databaseService.getRecordingById(recordingId);
+      } catch (error) {
+        console.warn('[RECORDING] Failed to get recording from database, trying in-memory store');
+        recording = store.recordings.findRecordingById(recordingId);
+      }
       
       if (!recording) {
         throw new Error(`Recording ${recordingId} not found`);
@@ -356,17 +373,30 @@ class RecordingsService {
    */
   async deleteRecording(recordingId: string): Promise<void> {
     try {
-      const recording = store.recordings.findRecordingById(recordingId);
+      let recording: RecordingI | null = null;
+      
+      // Get recording from database or store
+      try {
+        recording = await databaseService.getRecordingById(recordingId);
+      } catch (error) {
+        console.warn('[RECORDING] Failed to get recording from database, trying in-memory store');
+        recording = store.recordings.findRecordingById(recordingId);
+      }
       
       if (!recording) {
         throw new Error(`Recording ${recordingId} not found`);
       }
       
-      // Delete the file
+      // Delete the file from storage
       await storageService.deleteFile(recording.userId, `${recordingId}.wav`);
       
-      // Delete from store
-      store.recordings.deleteRecording(recordingId);
+      // Delete from database or store
+      try {
+        await databaseService.deleteRecording(recordingId);
+      } catch (error) {
+        console.warn('[RECORDING] Failed to delete from database, using in-memory store');
+        store.recordings.deleteRecording(recordingId);
+      }
       
       // Notify clients
       streamService.broadcastToUser(recording.userId, 'recording-deleted', {
@@ -374,6 +404,39 @@ class RecordingsService {
       });
     } catch (error) {
       console.error(`Error deleting recording ${recordingId}:`, error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Update a recording (e.g., rename)
+   */
+  async updateRecording(recordingId: string, updates: Partial<RecordingI>): Promise<RecordingI> {
+    try {
+      let updatedRecording: RecordingI | null = null;
+      
+      // Update in database first
+      try {
+        updatedRecording = await databaseService.updateRecording(recordingId, updates);
+      } catch (error) {
+        console.warn('[RECORDING] Failed to update in database, trying in-memory store');
+        updatedRecording = store.recordings.updateRecording(recordingId, updates);
+      }
+      
+      if (!updatedRecording) {
+        throw new Error(`Recording ${recordingId} not found or could not be updated`);
+      }
+      
+      // Notify clients
+      streamService.broadcastToUser(updatedRecording.userId, 'recording-status', {
+        id: recordingId,
+        ...updates,
+        updatedAt: updates.updatedAt?.getTime() || Date.now()
+      });
+      
+      return updatedRecording;
+    } catch (error) {
+      console.error(`Error updating recording ${recordingId}:`, error);
       throw error;
     }
   }

@@ -3,7 +3,7 @@
  * Main application entry point
  */
 
-import { TpaServer, TpaSession, ToolCall, ViewType } from '@augmentos/sdk';
+import { TpaServer, TpaSession, ViewType } from '@augmentos/sdk';
 import path from 'path';
 import cors from 'cors';
 import express, { Express, Request, Response, NextFunction } from 'express';
@@ -250,14 +250,6 @@ class RecorderServer extends TpaServer {
   protected async onStop(sessionId: string, userId: string, reason: string): Promise<void> {
     console.log(`TPA session stopped: ${sessionId} for user ${userId}, reason: ${reason}`);
     // Clean up any active recordings or resources
-  }
-
-  /**
-   * Handle tool calls from AugmentOS Cloud
-   */
-  protected async onToolCall(toolCall: ToolCall): Promise<string | undefined> {
-    // Not implemented for this app yet
-    return undefined;
   }
 }
 

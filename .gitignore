@@ -1,3 +1,5 @@
+temp_storage/*
+
 # Logs
 logs
 *.log

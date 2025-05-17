@@ -106,31 +106,6 @@ router.post('/:id/stop', isaiahMiddleware, async (req: AuthenticatedRequest, res
   }
 });
 
-// Create a note from a recording
-router.post('/:id/notes', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  const userId = req.userId;
-  const { id } = req.params;
-  const { content } = req.body;
-  if (!userId) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  try {
-    // First check if the recording exists and belongs to the user
-    const recording = await recordingsService.getRecordingById(id);
-    
-    if (recording.userId !== userId) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-    
-    const note = await recordingsService.createNoteFromRecording(id, content);
-    res.status(201).json(note);
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('not found')) {
-      return res.status(404).json({ error: error.message });
-    }
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
 
 // Download a recording
 router.get('/:id/download', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
@@ -156,6 +131,42 @@ router.get('/:id/download', isaiahMiddleware, async (req: AuthenticatedRequest, 
     
     // Send file
     res.send(file);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// Update a recording (e.g., rename)
+router.put('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.userId;
+  const { id } = req.params;
+  const { title } = req.body;
+  
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  if (!title) {
+    return res.status(400).json({ error: 'Title is required' });
+  }
+  
+  try {
+    // First check if the recording exists and belongs to the user
+    const recording = await recordingsService.getRecordingById(id);
+    
+    if (recording.userId !== userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    
+    const updatedRecording = await recordingsService.updateRecording(id, { 
+      title,
+      updatedAt: new Date()
+    });
+    
+    res.json(updatedRecording);
   } catch (error) {
     if (error instanceof Error && error.message.includes('not found')) {
       return res.status(404).json({ error: error.message });
