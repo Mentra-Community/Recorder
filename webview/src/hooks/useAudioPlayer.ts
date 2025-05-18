@@ -71,12 +71,6 @@ export function useAudioPlayer(options?: UseAudioPlayerOptions) {
         console.error('[AUDIO] Error testing URL:', fetchError);
       }
       
-      // Handle case when too many audio elements exist
-      if (window.performance && window.performance.memory) {
-        console.log('[AUDIO] Current memory usage:', 
-          Math.round(window.performance.memory.usedJSHeapSize / 1024 / 1024) + "MB");
-      }
-      
       // Create new audio element or reuse existing
       let audio: HTMLAudioElement;
       if (audioRef.current) {
@@ -152,7 +146,7 @@ export function useAudioPlayer(options?: UseAudioPlayerOptions) {
       audio.onerror = (e) => {
         const errorCode = audio.error ? audio.error.code : 'unknown';
         const errorMessage = audio.error ? audio.error.message : 'unknown error';
-        console.error(`[AUDIO] Error loading audio: code=${errorCode}, message=${errorMessage}`);
+        console.error(e, `[AUDIO] Error loading audio: code=${errorCode}, message=${errorMessage}`);
         
         setIsLoading(false);
         const error = new Error(`Error loading audio: ${errorCode} - ${errorMessage}`);
@@ -181,7 +175,7 @@ export function useAudioPlayer(options?: UseAudioPlayerOptions) {
       
       // Start loading with timeout
       console.log('[AUDIO] Starting to load audio');
-      const loadingPromise = new Promise<void>((resolve, reject) => {
+      const loadingPromise = new Promise<void>((resolve) => {
         const loadTimeout = setTimeout(() => {
           console.log('[AUDIO] Load timeout reached, continuing anyway');
           // Consider audio ready even if timeout is reached
