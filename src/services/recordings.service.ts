@@ -63,24 +63,50 @@ class RecordingsService {
           const text = transcription.text.toLowerCase();
           
           if (text.includes('start recording')) {
-            await this.startRecording(userId, sessionId);
+            // Send event before starting recording
+            streamService.broadcastToUser(userId, 'voice-command', {
+              command: 'start-recording',
+              timestamp: Date.now()
+            });
+            
+            const recordingId = await this.startRecording(userId, sessionId);
+            
             session.layouts.showReferenceCard(
               "Recording Started",
               "Say 'stop recording' when done",
               { view: ViewType.MAIN, durationMs: 3000 }
             );
+            
+            // Send additional confirmation event with the ID
+            streamService.broadcastToUser(userId, 'recording-started-by-voice', {
+              id: recordingId,
+              timestamp: Date.now()
+            });
           } 
           else if (text.includes('stop recording')) {
+            // Send event before stopping recording
+            streamService.broadcastToUser(userId, 'voice-command', {
+              command: 'stop-recording',
+              timestamp: Date.now()
+            });
+            
             const recording = Array.from(this.activeRecordings.values())
               .find(r => r.sessionId === sessionId && r.userId === userId);
               
             if (recording) {
               await this.stopRecording(recording.recordingId);
+              
               session.layouts.showReferenceCard(
                 "Recording Stopped",
                 "Processing your recording...",
                 { view: ViewType.MAIN, durationMs: 3000 }
               );
+              
+              // Send additional confirmation event with the ID
+              streamService.broadcastToUser(userId, 'recording-stopped-by-voice', {
+                id: recording.recordingId,
+                timestamp: Date.now()
+              });
             }
           }
         }

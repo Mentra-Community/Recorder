@@ -4,6 +4,7 @@ import RecordingImproved from './screens/RecordingImproved';
 import PlaybackImproved from './screens/PlaybackImproved';
 import { useRecordings } from './hooks/useRecordings';
 import { RecordingI } from './types/recording';
+import api from './Api';
 
 type Screen = 'list' | 'recording' | 'playback';
 
@@ -24,6 +25,37 @@ const ImprovedApp: React.FC = () => {
     renameRecording,
     getDownloadUrl
   } = useRecordings();
+  
+  // Listen for voice commands via SSE
+  useEffect(() => {
+    const handleVoiceCommand = (data: { command: string, timestamp: number }) => {
+      console.log(`[APP] Received voice command: ${data.command}`);
+      
+      if (data.command === 'start-recording' && currentScreen !== 'recording') {
+        console.log('[APP] Voice command is starting a recording');
+        navigateToRecording();
+      } else if (data.command === 'stop-recording' && currentScreen === 'recording') {
+        console.log('[APP] Voice command is stopping a recording');
+        // The actual stop will be handled by the recording component
+      }
+    };
+    
+    // Set up event listener using our centralized API
+    console.log('[APP] Setting up voice command listener');
+    api.events.connect(); // Ensure connection is established
+    api.events.addEventListener('voice-command', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleVoiceCommand(data);
+      } catch (error) {
+        console.error('[APP] Error handling voice command event:', error);
+      }
+    });
+    
+    return () => {
+      // No need to remove listener explicitly as it will be handled by the central API
+    };
+  }, [currentScreen]);
 
   // Navigation handlers
   const navigateToList = () => {

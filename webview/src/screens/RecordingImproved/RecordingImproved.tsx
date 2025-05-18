@@ -29,15 +29,18 @@ const RecordingImproved: React.FC<RecordingImprovedProps> = ({
   
   // Start recording when component mounts
   useEffect(() => {
+    console.log('[UI] Recording screen mounted, starting recording');
     const startRecording = async () => {
       if (onStartRecording) {
         try {
+          console.log('[UI] Calling API to start recording');
           const id = await onStartRecording();
+          console.log(`[UI] Recording started with ID: ${id}`);
           setRecordingId(id);
           setIsRecording(true);
           setError(null);
         } catch (err) {
-          console.error('Failed to start recording:', err);
+          console.error('[UI] Failed to start recording:', err);
           setError('Failed to start recording. Please try again.');
         }
       }
@@ -89,10 +92,25 @@ const RecordingImproved: React.FC<RecordingImprovedProps> = ({
     if (recordingId && onStop) {
       setIsRecording(false);
       try {
+        console.log(`[UI] Stopping recording with ID: ${recordingId}`);
         await onStop(recordingId);
+        console.log('[UI] Recording stopped successfully');
       } catch (err) {
-        console.error('Failed to stop recording:', err);
+        console.error('[UI] Failed to stop recording:', err);
         setError('Failed to stop recording. Please try again.');
+        
+        // Still show a message to the user that we're navigating away
+        setTimeout(() => {
+          if (onBack) {
+            console.log('[UI] Navigating back despite error');
+            onBack();
+          }
+        }, 2000);
+      }
+    } else {
+      console.error('[UI] Cannot stop recording: recordingId or onStop function missing');
+      if (onBack) {
+        onBack(); // Navigate back if we can't stop properly
       }
     }
   };
