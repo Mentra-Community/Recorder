@@ -47,9 +47,9 @@ router.get('/', isaiahMiddleware, async (req: AuthenticatedRequest, res: Respons
     const recordings = await recordingsService.getRecordingsForUser(userId);
     // Format recordings for API response
     const formattedRecordings = recordings.map(formatRecordingForApi);
-    res.json(formattedRecordings);
+    return res.json(formattedRecordings);
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 
@@ -62,20 +62,20 @@ router.get('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Resp
   }
   try {
     const recording = await recordingsService.getRecordingById(id);
-    
+
     // Make sure user owns this recording
     if (recording.userId !== userId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
+
     // Format recording for API response
     const formattedRecording = formatRecordingForApi(recording);
-    res.json(formattedRecording);
+    return res.json(formattedRecording);
   } catch (error) {
     if (error instanceof Error && error.message.includes('not found')) {
       return res.status(404).json({ error: error.message });
     }
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 
@@ -90,12 +90,12 @@ router.post('/start', isaiahMiddleware, async (req: AuthenticatedRequest, res: R
   if (!sessionId) {
     return res.status(400).json({ error: 'Session ID is required' });
   }
-  
+
   try {
-    const recordingId = await recordingsService.startRecording(userId, sessionId);
-    res.status(201).json({ id: recordingId });
+    const recordingId = await recordingsService.startRecording(userId);
+    return res.status(201).json({ id: recordingId });
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 
@@ -103,24 +103,34 @@ router.post('/start', isaiahMiddleware, async (req: AuthenticatedRequest, res: R
 router.post('/:id/stop', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.userId;
   const { id } = req.params;
+  console.log(`[API] [DEBUG] Stop recording API call for recording ID: ${id} by user: ${userId}`);
+  console.log(`[API] [DEBUG] Request headers: ${JSON.stringify(req.headers)}`);
+  console.log(`[API] [DEBUG] Client IP: ${req.ip}`);
+
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+
   try {
     // First check if the recording exists and belongs to the user
+    console.log(`[API] [DEBUG] Checking if recording ${id} exists and belongs to user ${userId}`);
     const recording = await recordingsService.getRecordingById(id);
-    
+
     if (recording.userId !== userId) {
+      console.log(`[API] [DEBUG] ⚠️ Recording ${id} doesn't belong to user ${userId}`);
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
+
+    console.log(`[API] [DEBUG] Proceeding to stop recording ${id}`);
     await recordingsService.stopRecording(id);
-    res.status(200).json({ success: true });
+    console.log(`[API] [DEBUG] Successfully stopped recording ${id}`);
+    return res.status(200).json({ success: true });
   } catch (error) {
+    console.log(`[API] [DEBUG] ⚠️ Error stopping recording ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     if (error instanceof Error && error.message.includes('not found')) {
       return res.status(404).json({ error: error.message });
     }
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 
@@ -131,71 +141,33 @@ router.get('/:id/download', isaiahMiddleware, async (req: AuthenticatedRequest, 
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  
+
   console.log(`[DOWNLOAD] Request for recording ID: ${id} from user: ${userId}`);
-  
+
   try {
-    // First look for this specific recording's file using MongoDB ID
-    const targetFile = `${id}.wav`;
-    const userDir = path.join(process.cwd(), 'temp_storage', userId);
-    const targetPath = path.join(userDir, targetFile);
-    
-    console.log(`[DOWNLOAD] Looking for recording file: ${targetPath}`);
-    
-    if (fs.existsSync(targetPath)) {
-      console.log(`[DOWNLOAD] Found exact recording file: ${targetFile}`);
-      
-      // Set headers for WAV
-      res.setHeader('Content-Type', 'audio/wav');
-      res.setHeader('Content-Disposition', `attachment; filename="${targetFile}"`);
-      
-      // Stream the file
-      const fileStream = fs.createReadStream(targetPath);
-      return fileStream.pipe(res);
-    }
-    
-    // If exact file not found, try the storage service
-    try {
-      console.log(`[DOWNLOAD] Getting file from storage service: ${id}`);
-      const fileData = await storageService.getFile(path.join(userId, `${id}.wav`));
-      
-      // Set headers for WAV
-      res.setHeader('Content-Type', 'audio/wav');
-      res.setHeader('Content-Disposition', `attachment; filename="${id}.wav"`);
-      
-      // Send the file
-      return res.send(fileData);
-    } catch (storageError) {
-      console.log(`[DOWNLOAD] Storage service failed: ${storageError.message}`);
-      
-      // As a last resort, serve any available WAV file
-      if (fs.existsSync(userDir)) {
-        const files = fs.readdirSync(userDir).filter(f => f.endsWith('.wav'));
-        console.log(`[DOWNLOAD] Found ${files.length} WAV files in ${userDir}`);
-        
-        if (files.length > 0) {
-          // Use the first available WAV file as fallback
-          const audioFile = files[0];
-          const filePath = path.join(userDir, audioFile);
-          
-          console.log(`[DOWNLOAD] Serving fallback audio file: ${audioFile}`);
-          
-          // Set headers for WAV
-          res.setHeader('Content-Type', 'audio/wav');
-          res.setHeader('Content-Disposition', `attachment; filename="${audioFile}"`);
-          
-          // Stream the file
-          const fileStream = fs.createReadStream(filePath);
-          return fileStream.pipe(res);
-        }
-      }
-      
-      // If no file found, return 404
-      return res.status(404).json({ error: 'Recording file not found' });
-    }
-  } catch (error) {
-    console.error('[DOWNLOAD] Error serving audio file:', error);
-    return res.status(500).json({ error: 'Failed to serve audio file' });
+    console.log(`[DOWNLOAD] Getting file from storage service: ${id}`);
+    const fileData = await storageService.getFile(userId, id);
+
+    // Set headers for WAV
+    res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Content-Disposition', `attachment; filename="${id}.wav"`);
+
+    // Send the file
+    return res.send(fileData);
+  } catch (storageError) {
+    console.log({storageError}, `[DOWNLOAD] Storage service failed`);
+
+    // DEBUGGING: Log that we reached this point - the specific file was not found
+    console.log(`[DOWNLOAD] [DEBUG] ⚠️ File not found in either local storage or R2: ${id}.wav`);
+    console.log(`[DOWNLOAD] [DEBUG] Call stack: ${new Error().stack}`);
+
+    // Return a proper 404 error
+    console.log(`[DOWNLOAD] [DEBUG] Returning 404 - Not Found for ${id}.wav`);
+    return res.status(404).json({
+      error: 'Recording file not found',
+      id: id,
+      message: 'The audio file for this recording could not be found.'
+    });
   }
 });
 
@@ -204,36 +176,36 @@ router.put('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Resp
   const userId = req.userId;
   const { id } = req.params;
   const { title } = req.body;
-  
+
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  
+
   if (!title) {
     return res.status(400).json({ error: 'Title is required' });
   }
-  
+
   try {
     // First check if the recording exists and belongs to the user
     const recording = await recordingsService.getRecordingById(id);
-    
+
     if (recording.userId !== userId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
-    const updatedRecording = await recordingsService.updateRecording(id, { 
+
+    const updatedRecording = await recordingsService.updateRecording(id, {
       title,
       updatedAt: new Date()
     });
-    
+
     // Format recording for API response
     const formattedRecording = formatRecordingForApi(updatedRecording);
-    res.json(formattedRecording);
+    return res.json(formattedRecording);
   } catch (error) {
     if (error instanceof Error && error.message.includes('not found')) {
       return res.status(404).json({ error: error.message });
     }
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 
@@ -241,24 +213,24 @@ router.put('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Resp
 router.delete('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.userId;
   const { id } = req.params;
-  if (!userId) { 
+  if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   try {
     // First check if the recording exists and belongs to the user
     const recording = await recordingsService.getRecordingById(id);
-    
+
     if (recording.userId !== userId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
+
     await recordingsService.deleteRecording(id);
-    res.status(204).end();
+    return res.status(204).end();
   } catch (error) {
     if (error instanceof Error && error.message.includes('not found')) {
       return res.status(404).json({ error: error.message });
     }
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 

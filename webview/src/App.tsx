@@ -29,31 +29,66 @@ const ImprovedApp: React.FC = () => {
   // Listen for voice commands via SSE
   useEffect(() => {
     const handleVoiceCommand = (data: { command: string, timestamp: number }) => {
-      console.log(`[APP] Received voice command: ${data.command}`);
+      console.log(`[APP] [DEBUG] Received voice command: ${data.command}, timestamp: ${data.timestamp}`);
+      console.log(`[APP] [DEBUG] Current screen: ${currentScreen}`);
       
-      if (data.command === 'start-recording' && currentScreen !== 'recording') {
-        console.log('[APP] Voice command is starting a recording');
-        navigateToRecording();
+      if (data.command === 'start-recording') {
+        console.log('[APP] [DEBUG] Voice command is starting a recording');
+        if (currentScreen !== 'recording') {
+          console.log('[APP] [DEBUG] Navigating to recording screen for voice-started recording');
+          // IMPORTANT: The backend already created a recording via voice command
+          // We just need to navigate to the recording screen, which will pick up the existing recording
+          // Do NOT call startRecording() here - the RecordingImproved component will handle finding the active recording
+          navigateToRecording();
+        } else {
+          console.log('[APP] [DEBUG] Already on recording screen, not navigating');
+        }
       } else if (data.command === 'stop-recording' && currentScreen === 'recording') {
-        console.log('[APP] Voice command is stopping a recording');
-        // The actual stop will be handled by the recording component
+        console.log('[APP] [DEBUG] Voice command is stopping a recording');
+        // The backend is already handling the stop recording action
+        // The RecordingImproved component will handle UI state changes
+        // DO NOT call stopRecording() here to avoid duplicate API calls
+        console.log('[APP] [DEBUG] ⚠️ Received stop-recording command - this is just UI notification, backend already stopped recording');
       }
     };
     
+    // Also listen for voice-stopped events
+    const handleRecordingStopped = (data: { id: string, timestamp: number }) => {
+      console.log(`[APP] [DEBUG] Received recording-stopped-by-voice event for recording: ${data.id}`);
+      // This is confirmation that recording was stopped on backend
+    };
+    
     // Set up event listener using our centralized API
-    console.log('[APP] Setting up voice command listener');
+    console.log('[APP] [DEBUG] Setting up voice command listeners');
     api.events.connect(); // Ensure connection is established
-    api.events.addEventListener('voice-command', (event) => {
+    
+    const voiceCommandListener = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
+        console.log(`[APP] [DEBUG] Processing voice-command event: ${JSON.stringify(data)}`);
         handleVoiceCommand(data);
       } catch (error) {
-        console.error('[APP] Error handling voice command event:', error);
+        console.error('[APP] [DEBUG] ⚠️ Error handling voice command event:', error);
       }
-    });
+    };
+    
+    const recordingStoppedListener = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log(`[APP] [DEBUG] Processing recording-stopped-by-voice event: ${JSON.stringify(data)}`);
+        handleRecordingStopped(data);
+      } catch (error) {
+        console.error('[APP] [DEBUG] ⚠️ Error handling recording stopped event:', error);
+      }
+    };
+    
+    api.events.addEventListener('voice-command', voiceCommandListener);
+    api.events.addEventListener('recording-stopped-by-voice', recordingStoppedListener);
     
     return () => {
-      // No need to remove listener explicitly as it will be handled by the central API
+      console.log('[APP] [DEBUG] Cleaning up voice command listeners');
+      api.events.removeEventListener('voice-command', voiceCommandListener);
+      api.events.removeEventListener('recording-stopped-by-voice', recordingStoppedListener);
     };
   }, [currentScreen]);
 

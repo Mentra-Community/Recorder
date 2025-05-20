@@ -3,22 +3,34 @@
  */
 
 export enum RecordingStatus {
-  IDLE = 'idle',
+  INITIALIZING = 'initializing', // New status for recording being set up
   RECORDING = 'recording',
-  PROCESSING = 'processing',
+  STOPPING = 'stopping', // Recording in the process of being stopped
   COMPLETED = 'completed',
   ERROR = 'error'
 }
 
+export interface TranscriptChunk {
+  text: string;
+  timestamp: number;
+  isFinal: boolean;
+}
+
+export interface StorageMetadata {
+  initialized: boolean;
+  fileUrl?: string;
+  size?: number;
+}
+
 export interface RecordingI {
   _id: string;
-  userId: string;
-  sessionId: string;
+  userId: string; // This is the user's email from TPA session
   title: string;
-  transcript: string;
+  transcript: string; // Concatenated transcript for backwards compatibility
+  transcriptChunks: TranscriptChunk[]; // Array of transcript chunks
+  currentInterim?: string; // Current interim transcript
   duration: number;
-  fileUrl?: string;
-  isRecording: boolean;
+  storage: StorageMetadata;
   status: RecordingStatus;
   error?: string;
   createdAt: Date;

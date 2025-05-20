@@ -14,6 +14,7 @@ interface TranscriptUpdate {
   recordingId: string;
   text: string;
   timestamp: number;
+  isInterim?: boolean;
 }
 
 const RecordingImproved: React.FC<RecordingImprovedProps> = ({ 
@@ -27,27 +28,99 @@ const RecordingImproved: React.FC<RecordingImprovedProps> = ({
   const [transcriptText, setTranscriptText] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   
+  // Listen for recordings that were started by voice
+  useRealTimeEvents('recording-started-by-voice', (data: { id: string, timestamp: number }) => {
+    console.log(`[UI] [DEBUG] Recording started by voice command: ${data.id}`);
+    
+    // If we don't have a recording ID yet, use this one
+    if (!recordingId) {
+      console.log(`[UI] [DEBUG] Using voice-started recording ID: ${data.id}`);
+      setRecordingId(data.id);
+      setIsRecording(true);
+      setError(null);
+      setInitialized(true); // Mark as initialized so we don't start a new recording
+    } else if (recordingId !== data.id) {
+      console.log(`[UI] [DEBUG] ⚠️ Voice command started a different recording (${data.id}) than what we have (${recordingId})`);
+    }
+  });
+  
+  // Track whether we've handled initialization
+  const [initialized, setInitialized] = useState(false);
+  
   // Start recording when component mounts
   useEffect(() => {
-    console.log('[UI] Recording screen mounted, starting recording');
-    const startRecording = async () => {
-      if (onStartRecording) {
-        try {
-          console.log('[UI] Calling API to start recording');
-          const id = await onStartRecording();
-          console.log(`[UI] Recording started with ID: ${id}`);
-          setRecordingId(id);
-          setIsRecording(true);
-          setError(null);
-        } catch (err) {
-          console.error('[UI] Failed to start recording:', err);
-          setError('Failed to start recording. Please try again.');
-        }
-      }
-    };
+    // Skip if we've already initialized (e.g., from voice command)
+    if (initialized) {
+      console.log('[UI] [DEBUG] Component already initialized, skipping startup');
+      return;
+    }
     
-    startRecording();
-  }, [onStartRecording]);
+    console.log('[UI] Recording screen mounted');
+    
+    // Set a small delay to allow voice command events to arrive first
+    // This helps resolve the race condition between mount and voice command events
+    const initializationDelay = setTimeout(async () => {
+      // Look for any existing active recording first (that might have been started by voice)
+      const checkExistingRecordings = async () => {
+        try {
+          console.log('[UI] [DEBUG] Checking for existing active recordings');
+          const recordings = await fetch('/api/recordings').then(res => res.json());
+          const activeRecording = recordings.find((r: any) => r.isRecording === true);
+          
+          if (activeRecording) {
+            console.log(`[UI] [DEBUG] Found active recording: ${activeRecording.id}`);
+            setRecordingId(activeRecording.id);
+            setIsRecording(true);
+            setError(null);
+            setInitialized(true);
+            return true;
+          }
+          return false;
+        } catch (err) {
+          console.error('[UI] [DEBUG] Error checking existing recordings:', err);
+          return false;
+        }
+      };
+      
+      // Skip if we already have a recordingId (e.g., from voice command)
+      if (recordingId) {
+        console.log(`[UI] [DEBUG] Already have recording ID ${recordingId}, skipping new recording creation`);
+        setInitialized(true);
+        return;
+      }
+      
+      const startRecording = async () => {
+        if (onStartRecording) {
+          try {
+            // First check if there's already an active recording
+            const hasExisting = await checkExistingRecordings();
+            if (hasExisting) {
+              console.log('[UI] [DEBUG] Using existing active recording, not starting a new one');
+              return;
+            }
+            
+            console.log('[UI] [DEBUG] No active recordings found, starting a new one');
+            console.log('[UI] Calling API to start recording');
+            const id = await onStartRecording();
+            console.log(`[UI] Recording started with ID: ${id}`);
+            setRecordingId(id);
+            setIsRecording(true);
+            setError(null);
+            setInitialized(true);
+          } catch (err) {
+            console.error('[UI] Failed to start recording:', err);
+            setError('Failed to start recording. Please try again.');
+          }
+        }
+      };
+      
+      startRecording();
+    }, 200); // Small delay to let SSE events arrive first
+    
+    return () => {
+      clearTimeout(initializationDelay);
+    };
+  }, [onStartRecording, recordingId, initialized]);
   
   // Update recording timer
   useEffect(() => {
@@ -67,19 +140,80 @@ const RecordingImproved: React.FC<RecordingImprovedProps> = ({
   // Listen for real-time transcript updates
   const handleTranscriptUpdate = useCallback((update: TranscriptUpdate) => {
     if (update.recordingId === recordingId) {
+      console.log(`[UI] [DEBUG] Received transcript update for ${recordingId}: "${update.text}" (${update.isInterim ? 'interim' : 'final'})`);
       setTranscriptText(update.text);
+      
+      // If this is an interim transcript, we could show it differently (e.g., italics)
+      // but for now we'll just display it the same way
     }
   }, [recordingId]);
   
-  useRealTimeEvents<TranscriptUpdate>('transcript:update', handleTranscriptUpdate);
+  useRealTimeEvents<TranscriptUpdate>('transcript', handleTranscriptUpdate);
+  
+  // Get the initial transcript when the recording ID is set
+  useEffect(() => {
+    if (recordingId) {
+      console.log(`[UI] [DEBUG] Getting initial transcript for recording ${recordingId}`);
+      // Fetch the recording to get its current transcript
+      fetch(`/api/recordings/${recordingId}`)
+        .then(res => res.json())
+        .then(recording => {
+          console.log(`[UI] [DEBUG] Initial transcript: "${recording.transcript}"`);
+          if (recording.transcript) {
+            setTranscriptText(recording.transcript);
+          }
+        })
+        .catch(err => {
+          console.error(`[UI] [DEBUG] Error fetching initial transcript:`, err);
+        });
+    }
+  }, [recordingId]);
   
   // Listen for recording status updates
   useRealTimeEvents('recording:status', (update: { id: string, status: RecordingStatusE }) => {
+    console.log(`[RECORDING] [DEBUG] Received recording status update for ${update.id}: ${update.status}`);
+    console.log(`[RECORDING] [DEBUG] Current recordingId: ${recordingId}`);
+    
     if (update.id === recordingId) {
+      console.log(`[RECORDING] [DEBUG] Status update matches current recording`);
       // If recording completes or errors, we should go back
       if (update.status === RecordingStatusE.ERROR) {
+        console.log(`[RECORDING] [DEBUG] Recording error detected`);
         setError('Recording failed. Please try again.');
         if (onBack) onBack();
+      } else if (update.status === RecordingStatusE.COMPLETED) {
+        console.log(`[RECORDING] [DEBUG] Recording completed via SSE notification`);
+        // This means the recording was already stopped on the backend
+      }
+    }
+  });
+  
+  // Listen specifically for voice commands to stop recording
+  useRealTimeEvents('voice-command', (data: { command: string, timestamp: number }) => {
+    console.log(`[RECORDING] [DEBUG] Received voice command: ${data.command}`);
+    
+    if (data.command === 'stop-recording' && isRecording) {
+      console.log(`[RECORDING] [DEBUG] Voice command to stop recording received`);
+      console.log(`[RECORDING] [DEBUG] ⚠️ Not calling API to stop recording - backend is handling it`);
+      // Don't call API here - backend is already handling the stop
+      // Just update the UI state to show stopping
+      setIsRecording(false);
+    }
+  });
+  
+  // Listen for voice-initiated recording stop events
+  useRealTimeEvents('recording-stopped-by-voice', (data: { id: string, timestamp: number }) => {
+    console.log(`[RECORDING] [DEBUG] Recording stopped by voice command: ${data.id}`);
+    
+    if (data.id === recordingId) {
+      console.log(`[RECORDING] [DEBUG] ⚠️ This matches our current recording - navigating back`);
+      setIsRecording(false);
+      // Navigate back to the list since the recording was stopped by voice command
+      if (onBack) {
+        setTimeout(() => {
+          console.log(`[RECORDING] [DEBUG] Navigating back to list after voice stop`);
+          onBack();
+        }, 500);
       }
     }
   });
@@ -89,7 +223,7 @@ const RecordingImproved: React.FC<RecordingImprovedProps> = ({
   };
 
   const handleStop = async () => {
-    if (recordingId && onStop) {
+    if (recordingId && onStop && isRecording) {
       setIsRecording(false);
       try {
         console.log(`[UI] Stopping recording with ID: ${recordingId}`);
@@ -108,7 +242,11 @@ const RecordingImproved: React.FC<RecordingImprovedProps> = ({
         }, 2000);
       }
     } else {
-      console.error('[UI] Cannot stop recording: recordingId or onStop function missing');
+      console.log('[UI] Not stopping recording: ' + 
+        (!recordingId ? 'No recordingId. ' : '') + 
+        (!onStop ? 'No onStop function. ' : '') + 
+        (!isRecording ? 'Not currently recording. ' : ''));
+      
       if (onBack) {
         onBack(); // Navigate back if we can't stop properly
       }
