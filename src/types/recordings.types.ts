@@ -11,7 +11,7 @@ export enum RecordingStatus {
 }
 
 export interface RecordingI {
-  id: string;
+  _id: string;
   userId: string;
   sessionId: string;
   title: string;

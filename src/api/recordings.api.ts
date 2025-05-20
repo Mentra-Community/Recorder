@@ -8,8 +8,21 @@ import recordingsService from '../services/recordings.service';
 import storageService from '../services/storage.service';
 import path from 'path';
 import fs from 'fs';
+import { RecordingDocument } from '../models/recording.models';
 
 const router = Router();
+
+// Helper function to convert _id to id for frontend compatibility
+function formatRecordingForApi(recording: RecordingDocument) {
+  const plainRecord = recording.toObject ? recording.toObject() : recording;
+  return {
+    ...plainRecord,
+    id: plainRecord._id.toString(), // Add id for backward compatibility
+    _id: undefined, // Remove _id from the response
+    createdAt: plainRecord.createdAt instanceof Date ? plainRecord.createdAt.getTime() : plainRecord.createdAt,
+    updatedAt: plainRecord.updatedAt instanceof Date ? plainRecord.updatedAt.getTime() : plainRecord.updatedAt
+  };
+}
 
 // Use the AugmentOS SDK auth middleware
 // import { authMiddleware } from '@augmentos/sdk';
@@ -32,7 +45,9 @@ router.get('/', isaiahMiddleware, async (req: AuthenticatedRequest, res: Respons
 
   try {
     const recordings = await recordingsService.getRecordingsForUser(userId);
-    res.json(recordings);
+    // Format recordings for API response
+    const formattedRecordings = recordings.map(formatRecordingForApi);
+    res.json(formattedRecordings);
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
@@ -53,7 +68,9 @@ router.get('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Resp
       return res.status(403).json({ error: 'Forbidden' });
     }
     
-    res.json(recording);
+    // Format recording for API response
+    const formattedRecording = formatRecordingForApi(recording);
+    res.json(formattedRecording);
   } catch (error) {
     if (error instanceof Error && error.message.includes('not found')) {
       return res.status(404).json({ error: error.message });
@@ -209,7 +226,9 @@ router.put('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Resp
       updatedAt: new Date()
     });
     
-    res.json(updatedRecording);
+    // Format recording for API response
+    const formattedRecording = formatRecordingForApi(updatedRecording);
+    res.json(formattedRecording);
   } catch (error) {
     if (error instanceof Error && error.message.includes('not found')) {
       return res.status(404).json({ error: error.message });

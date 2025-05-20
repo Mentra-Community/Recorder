@@ -6,7 +6,6 @@
 import { Router } from 'express';
 import { Request, Response } from 'express';
 import streamService from '../services/stream.service';
-import store from '../models/in-memory-store';
 
 const router = Router();
 
@@ -14,36 +13,36 @@ const router = Router();
  * GET /api/transcripts
  * Returns the most recent transcripts for the user
  */
-router.get('/', (req: Request, res: Response) => {
-  console.log(`[API] Transcript request received from ${req.headers['user-agent']}`);
+// router.get('/', (req: Request, res: Response) => {
+//   console.log(`[API] Transcript request received from ${req.headers['user-agent']}`);
   
-  // Get user ID
-  const userId = (req as any).authUserId || 'anonymous';
+//   // Get user ID
+//   const userId = (req as any).authUserId || 'anonymous';
   
-  // Get recordings for the user to extract transcripts
-  const recordings = store.recordings.findRecordingsByUser(userId);
+//   // Get recordings for the user to extract transcripts
+//   const recordings = store.recordings.findRecordingsByUser(userId);
   
-  // Extract transcript data from the recordings
-  const transcripts = recordings.map(recording => ({
-    id: recording.id,
-    timestamp: recording.updatedAt.toISOString(),
-    text: recording.transcript,
-    speakerName: 'User',
-    durationMs: recording.duration * 1000,
-    recordingId: recording.id
-  }));
+//   // Extract transcript data from the recordings
+//   const transcripts = recordings.map(recording => ({
+//     id: recording.id,
+//     timestamp: recording.updatedAt.toISOString(),
+//     text: recording.transcript,
+//     speakerName: 'User',
+//     durationMs: recording.duration * 1000,
+//     recordingId: recording.id
+//   }));
   
-  // Add cache prevention headers
-  res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.header('Pragma', 'no-cache');
-  res.header('Expires', '0');
+//   // Add cache prevention headers
+//   res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+//   res.header('Pragma', 'no-cache');
+//   res.header('Expires', '0');
   
-  // Send response
-  res.json({
-    status: 'success',
-    data: transcripts
-  });
-});
+//   // Send response
+//   res.json({
+//     status: 'success',
+//     data: transcripts
+//   });
+// });
 
 /**
  * GET /api/transcripts/sse

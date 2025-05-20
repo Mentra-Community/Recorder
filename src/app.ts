@@ -48,23 +48,23 @@ class RecorderServer extends TpaServer {
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
     }));
-    
+
     // Parse JSON for request bodies
     this.expressApp.use(express.json());
-    
+
     // Parse URL-encoded request bodies (forms)
     this.expressApp.use(express.urlencoded({ extended: true }));
-    
+
     // Add auto-auth for development
     this.setupDevAuth();
-    
+
     // Set up API routes
     this.setupApiRoutes();
-    
+
     // Serve static files
     this.setupStaticFileServing();
   }
-  
+
   /**
    * Set up auto-authentication for development
    */
@@ -72,19 +72,19 @@ class RecorderServer extends TpaServer {
     // Development middleware to auto-auth from localhost
     this.expressApp.use((req: Request, res: Response, next: NextFunction) => {
       // Check if this is a request from localhost
-      const isLocalhost = req.hostname === 'localhost' || 
-                         req.hostname === '127.0.0.1' ||
-                         req.ip === '127.0.0.1' || 
-                         req.ip === '::1';
-      
+      const isLocalhost = req.hostname === 'localhost' ||
+        req.hostname === '127.0.0.1' ||
+        req.ip === '127.0.0.1' ||
+        req.ip === '::1';
+
       if (isLocalhost) {
         // Auto-inject auth for local development
         const userEmail = 'isaiah@mentra.glass';
         console.log(`[DEV] Auto-authenticating as ${userEmail}`);
-        
+
         // Set auth user ID for API routes
         (req as any).authUserId = userEmail;
-        
+
         // For non-API routes, need to inject auth token into HTML
         if (!req.path.startsWith('/api/') && req.path !== '/api') {
           // Will inject auth token in the static file middleware
@@ -92,11 +92,11 @@ class RecorderServer extends TpaServer {
           (req as any).userEmail = userEmail;
         }
       }
-      
+
       next();
     });
   }
-  
+
   /**
    * Set up API routes
    */
@@ -109,39 +109,39 @@ class RecorderServer extends TpaServer {
         status: 'development'
       });
     });
-    
+
     // Core API routes for Recorder app
     this.expressApp.use('/api/recordings', recordingsApi);
     this.expressApp.use('/api/transcripts', transcriptsApi);
     this.expressApp.use('/api/files', filesApi);
     this.expressApp.use('/api/events', eventsApi);
   }
-  
+
   /**
    * Set up static file serving
    */
   private setupStaticFileServing(): void {
     const staticFilesPath = path.join(__dirname, '../webview/dist');
     console.log(`[SERVER] Serving static files from: ${staticFilesPath}`);
-    
+
     // Root redirect to webview
     this.expressApp.get('/', (req: Request, res: Response) => {
       res.redirect('/webview');
     });
-    
+
     // Special handling for webview to inject auth
     this.expressApp.get('/webview', (req: Request, res: Response) => {
       console.log(`[SERVER] Webview request received from ${req.ip}`);
-      
+
       const filePath = path.join(staticFilesPath, 'index.html');
-      
+
       try {
         let html = fs.readFileSync(filePath, 'utf8');
-        
+
         // Add auto auth for local development
         if ((req as any).autoAuth && (req as any).userEmail) {
           console.log(`[DEV] Injecting auth for ${(req as any).userEmail}`);
-          
+
           html = html.replace(
             '<head>',
             `<head>
@@ -163,39 +163,39 @@ class RecorderServer extends TpaServer {
     </script>`
           );
         }
-        
+
         res.type('text/html').send(html);
       } catch (error) {
         console.error('[ERROR] Failed to serve webview HTML:', error);
         res.status(500).send('Error serving webview');
       }
     });
-    
+
     // Serve static files with caching disabled in development
     this.expressApp.use(express.static(staticFilesPath, {
       maxAge: 0,
       etag: false,
       lastModified: false
     }));
-    
+
     // Catch-all route for client-side routing
     this.expressApp.get('*', (req: Request, res: Response, next: NextFunction) => {
       // Skip API routes
       if (req.path.startsWith('/api/')) {
         return next();
       }
-      
+
       // For all other routes, serve the index.html
       const indexPath = path.join(staticFilesPath, 'index.html');
-      
+
       if (fs.existsSync(indexPath)) {
         try {
           let html = fs.readFileSync(indexPath, 'utf8');
-          
+
           // Auto-inject auth for localhost
           if ((req as any).autoAuth && (req as any).userEmail) {
             console.log(`[DEV] Injecting auth for path: ${req.path}`);
-            
+
             html = html.replace(
               '<head>',
               `<head>
@@ -216,7 +216,7 @@ class RecorderServer extends TpaServer {
     </script>`
             );
           }
-          
+
           res.type('text/html').send(html);
         } catch (err) {
           console.error(`[ERROR] Failed to serve index.html: ${err}`);
@@ -237,7 +237,7 @@ class RecorderServer extends TpaServer {
 
     // Set up SDK session handlers for audio and transcription
     recordingsService.setupSDKSession(session, sessionId, userId);
-    
+
     // Show welcome message on glasses
     session.layouts.showReferenceCard(
       "Recorder App",
@@ -259,28 +259,18 @@ class RecorderServer extends TpaServer {
 // Create and start the server
 const server = new RecorderServer();
 
-// Initialize MongoDB connection first, then start the server
-mongodbConnection.init()
-  .then(() => {
-    return server.start();
-  })
-  .then(() => {
-    console.log(`[STARTUP] TPA server running on port ${process.env.PORT || 8069}`);
-    console.log(`[CONFIG] Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`[CONFIG] Package Name: ${process.env.PACKAGE_NAME || 'com.augmentos.recorder'}`);
-  })
-  .catch(error => {
-    console.error('[ERROR] Failed to start server:', error);
-    console.log('[STARTUP] Starting server without MongoDB connection...');
-    
-    // Try to start the server anyway, with fallback to in-memory storage
-    server.start().then(() => {
-      console.log(`[STARTUP] TPA server running on port ${process.env.PORT || 8069} (without MongoDB)`);
-    }).catch(serverError => {
-      console.error('[ERROR] Failed to start server:', serverError);
-      process.exit(1);
-    });
+mongodbConnection.init().then(() => {
+  console.log('MongoDB connection established');
+  // Try to start the server anyway
+  server.start().then(() => {
+    console.log(`[STARTUP] TPA server running on port ${process.env.PORT || 8069} for ${process.env.PACKAGE_NAME}`);
+  }).catch(serverError => {
+    console.error('[ERROR] Failed to start server:', serverError);
+    process.exit(1);
   });
+}).catch(err => {
+  console.error('Failed to connect to MongoDB:', err);
+  process.exit(1);
+});
 
-console.log("TESTING2");
 export default server.getExpressApp();

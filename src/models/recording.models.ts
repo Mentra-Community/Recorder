@@ -3,22 +3,10 @@
  */
 
 import mongoose, { Schema, Document } from 'mongoose';
-import { RecordingStatus } from '../types/recordings.types';
+import { RecordingStatus, RecordingI } from '../types/recordings.types';
 
-// Interface for Recording document
-export interface RecordingDocument extends Document {
-  userId: string;
-  sessionId: string;
-  title: string;
-  transcript: string;
-  duration: number;
-  fileUrl?: string;
-  isRecording: boolean;
-  status: string;
-  error?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
+// Export RecordingDocument as Document & RecordingI
+export type RecordingDocument = Document & RecordingI;
 
 // Recording Schema
 const RecordingSchema = new Schema({

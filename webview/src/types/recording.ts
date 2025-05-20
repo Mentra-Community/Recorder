@@ -11,7 +11,8 @@ export enum RecordingStatusE {
 }
 
 export interface RecordingI {
-  id: string;
+  id: string;      // Keep using 'id' since the API still returns this field for compatibility
+  _id?: string;    // Optional _id field in case we need it
   title: string;
   duration: number;
   transcript: string;

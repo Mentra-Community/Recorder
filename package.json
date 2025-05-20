@@ -6,7 +6,7 @@
     "dev": "bun run dev:concurrent",
     "dev:server": "bun --watch src/app.ts",
     "dev:webview": "cd webview && bun run dev",
-    "dev:concurrent": "bun run clean-wav-files && bun run dev:webview & bun run dev:server",
+    "dev:concurrent": "bun run dev:webview & bun run dev:server",
     "dev:build": "cd webview && bun run build && cd .. && bun --hot server/src/app.ts",
     "build": "cd webview && bun run build && cd .. && bun build ./server/src/app.ts --outdir ./dist --target bun",
     "start": "bun dist/app.js",
