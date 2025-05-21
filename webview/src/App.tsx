@@ -23,7 +23,10 @@ const ImprovedApp: React.FC = () => {
     stopRecording,
     deleteRecording,
     renameRecording,
-    getDownloadUrl
+    getDownloadUrl,
+    checkRefreshNeeded,
+    sessionConnected,
+    checkSessionStatus
   } = useRecordings();
   
   // Listen for voice commands via SSE
@@ -97,9 +100,14 @@ const ImprovedApp: React.FC = () => {
     setCurrentScreen('list');
     setSelectedRecordingId(null);
     setSelectedRecording(null);
+    
+    // Check if we need to refresh the recordings list
+    checkRefreshNeeded();
   };
 
-  const navigateToRecording = () => {
+  const navigateToRecording = async () => {
+    // Check if we have an active session before navigating to recording
+    await checkSessionStatus();
     setCurrentScreen('recording');
   };
 
@@ -167,7 +175,7 @@ const ImprovedApp: React.FC = () => {
             <div className="text-red-500 mb-4">Error: {error.message}</div>
             <button 
               className="px-4 py-2 bg-gray-200 rounded" 
-              onClick={fetchRecordings}
+              onClick={() => fetchRecordings()}
             >
               Retry
             </button>
@@ -204,6 +212,8 @@ const ImprovedApp: React.FC = () => {
             onNewRecording={navigateToRecording}
             onRenameRecording={renameRecording}
             onDeleteRecording={handleDeleteRecording}
+            onRefresh={() => checkRefreshNeeded()}
+            sessionConnected={sessionConnected}
           />
         );
     }

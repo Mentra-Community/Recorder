@@ -92,9 +92,16 @@ router.post('/start', isaiahMiddleware, async (req: AuthenticatedRequest, res: R
   }
 
   try {
-    const recordingId = await recordingsService.startRecording(userId);
+    // False = not voice-initiated (this is from UI)
+    const recordingId = await recordingsService.startRecording(userId, false);
     return res.status(201).json({ id: recordingId });
   } catch (error) {
+    if (error instanceof Error && error.message.includes('No active AugmentOS SDK session')) {
+      return res.status(400).json({ 
+        error: error.message,
+        code: 'NO_ACTIVE_SESSION'
+      });
+    }
     return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
@@ -122,7 +129,8 @@ router.post('/:id/stop', isaiahMiddleware, async (req: AuthenticatedRequest, res
     }
 
     console.log(`[API] [DEBUG] Proceeding to stop recording ${id}`);
-    await recordingsService.stopRecording(id);
+    // False = not voice-initiated (this is from UI)
+    await recordingsService.stopRecording(id, false);
     console.log(`[API] [DEBUG] Successfully stopped recording ${id}`);
     return res.status(200).json({ success: true });
   } catch (error) {

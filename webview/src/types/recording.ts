@@ -4,7 +4,9 @@
 
 export enum RecordingStatusE {
   IDLE = 'idle',
+  INITIALIZING = 'initializing',
   RECORDING = 'recording',
+  STOPPING = 'stopping',    // Added to match backend
   PROCESSING = 'processing',
   COMPLETED = 'completed',
   ERROR = 'error'

@@ -12,6 +12,7 @@ import recordingsApi from './api/recordings.api';
 import transcriptsApi from './api/transcripts.api';
 import filesApi from './api/files.api';
 import eventsApi from './api/events.api';
+import sessionApi from './api/session.api';
 import streamService from './services/stream.service';
 import recordingsService from './services/recordings.service';
 import * as mongodbConnection from './connections/mongodb.connection';
@@ -115,6 +116,7 @@ class RecorderServer extends TpaServer {
     this.expressApp.use('/api/transcripts', transcriptsApi);
     this.expressApp.use('/api/files', filesApi);
     this.expressApp.use('/api/events', eventsApi);
+    this.expressApp.use('/api/session', sessionApi);
   }
 
   /**

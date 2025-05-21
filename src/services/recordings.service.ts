@@ -9,6 +9,7 @@ import { Recording, RecordingDocument } from '../models/recording.models';
 import mongoose from 'mongoose';
 import storageService from './storage.service';
 import streamService from './stream.service';
+import { hasActiveSession, registerActiveSession } from '../api/session.api';
 
 class RecordingsService {
   /**
@@ -36,10 +37,21 @@ class RecordingsService {
   }
 
   /**
+   * Track active SDK sessions
+   */
+  private activeSdkSessions = new Map<string, TpaSession>();
+
+  /**
    * Handle new session from AugmentOS SDK
    */
   setupSDKSession(session: TpaSession, sessionId: string, userId: string): void {
     console.log(`[TPA SESSION] Setting up session for user ${userId}`);
+    
+    // Store session for future use
+    this.activeSdkSessions.set(userId, session);
+    
+    // Register this as an active session
+    registerActiveSession(userId);
     
     // Set up handlers for audio chunks
     session.events.onAudioChunk(async (chunk: AudioChunk) => {
@@ -90,10 +102,10 @@ class RecordingsService {
                 });
                 
                 // Show message to user
-                session.layouts.showReferenceCard(
+                this.showReferenceCard(userId, 
                   "Recording Already Active",
                   "You already have an active recording",
-                  { view: ViewType.MAIN, durationMs: 3000 }
+                  3000
                 );
               } else {
                 // Notify client that we're starting a recording
@@ -106,10 +118,10 @@ class RecordingsService {
                 const recordingId = await this.startRecording(userId);
                 
                 // Show message to user
-                session.layouts.showReferenceCard(
+                this.showReferenceCard(userId,
                   "Recording Started",
                   "Say 'stop recording' when done",
-                  { view: ViewType.MAIN, durationMs: 3000 }
+                  3000
                 );
                 
                 // Send confirmation with the recording ID
@@ -122,10 +134,10 @@ class RecordingsService {
               console.error(`[VOICE COMMAND] Error processing 'start recording' command:`, error);
               
               // Notify user of error
-              session.layouts.showReferenceCard(
+              this.showReferenceCard(userId,
                 "Recording Failed",
                 "Unable to start recording",
-                { view: ViewType.MAIN, durationMs: 3000 }
+                3000
               );
             }
           } 
@@ -151,10 +163,10 @@ class RecordingsService {
                 });
                 
                 // Show message to user
-                session.layouts.showReferenceCard(
+                this.showReferenceCard(userId,
                   "Recording Stopped",
                   "Processing your recording...",
-                  { view: ViewType.MAIN, durationMs: 3000 }
+                  3000
                 );
                 
                 // Send confirmation with the recording ID
@@ -166,20 +178,20 @@ class RecordingsService {
                 console.log(`[VOICE COMMAND] No active recording found for user ${userId}`);
                 
                 // Show message to user
-                session.layouts.showReferenceCard(
+                this.showReferenceCard(userId,
                   "No Active Recording",
                   "You don't have an active recording to stop",
-                  { view: ViewType.MAIN, durationMs: 3000 }
+                  3000
                 );
               }
             } catch (error) {
               console.error(`[VOICE COMMAND] Error processing 'stop recording' command:`, error);
               
               // Notify user of error
-              session.layouts.showReferenceCard(
+              this.showReferenceCard(userId,
                 "Error Stopping Recording",
                 "Unable to stop recording",
-                { view: ViewType.MAIN, durationMs: 3000 }
+                3000
               );
             }
           }
@@ -192,11 +204,32 @@ class RecordingsService {
   }
   
   /**
+   * Helper to show reference card on glasses, abstracted for reuse
+   */
+  private showReferenceCard(userId: string, title: string, description: string, durationMs: number = 3000): void {
+    const session = this.activeSdkSessions.get(userId);
+    if (session) {
+      try {
+        session.layouts.showReferenceCard(
+          title,
+          description,
+          { view: ViewType.MAIN, durationMs }
+        );
+      } catch (error) {
+        console.error(`[TPA] Error showing reference card to user ${userId}:`, error);
+      }
+    } else {
+      console.log(`[TPA] Cannot show reference card to user ${userId}: no active session`);
+    }
+  }
+  
+  /**
    * Start a new recording
    * 
    * This is a command handler that ensures only one active recording per user
+   * and verifies that a valid TPA session exists
    */
-  async startRecording(userId: string): Promise<string> {
+  async startRecording(userId: string, isVoiceInitiated: boolean = false): Promise<string> {
     console.log(`[RECORDING] Starting recording for user ${userId}`);
     
     try {
@@ -206,6 +239,13 @@ class RecordingsService {
       if (existingRecording) {
         console.log(`[RECORDING] User ${userId} already has an active recording: ${existingRecording._id}`);
         return existingRecording._id.toString();
+      }
+      
+      // Check if the user has an active TPA session - skip for voice-initiated recordings
+      // as those already come from an active TPA session
+      if (!isVoiceInitiated && !hasActiveSession(userId)) {
+        console.log(`[RECORDING] Rejecting recording start - no active TPA session for user ${userId}`);
+        throw new Error('No active AugmentOS SDK session. Please ensure your glasses are connected.');
       }
       
       // Create new recording with INITIALIZING status
@@ -249,6 +289,15 @@ class RecordingsService {
           transcript: '',
           createdAt: savedRecording.createdAt.getTime()
         });
+        
+        // Show feedback on glasses if initiated from UI (voice already shows feedback)
+        if (!isVoiceInitiated) {
+          this.showReferenceCard(userId,
+            "Recording Started",
+            "Recording audio...",
+            3000
+          );
+        }
         
         console.log(`[RECORDING] Started recording ${recordingId} for user ${userId}`);
         return recordingId;
@@ -454,7 +503,7 @@ class RecordingsService {
    * 
    * This is a command handler that stops a recording
    */
-  async stopRecording(recordingId: string): Promise<void> {
+  async stopRecording(recordingId: string, isVoiceInitiated: boolean = false): Promise<void> {
     console.log(`[RECORDING] Stopping recording ${recordingId}`);
     
     try {
@@ -482,12 +531,27 @@ class RecordingsService {
       
       const userId = recordingDoc.userId;
       
+      // Show feedback on glasses if initiated from UI (voice already shows feedback)
+      if (!isVoiceInitiated) {
+        this.showReferenceCard(userId,
+          "Recording Stopped",
+          "Processing your recording...",
+          3000
+        );
+      }
+      
       // Mark recording as STOPPING to prevent new chunks and transcripts
       await Recording.findByIdAndUpdate(recordingId, {
         status: RecordingStatus.STOPPING,
         updatedAt: new Date()
       });
       console.log(`[RECORDING] Marked recording ${recordingId} as STOPPING`);
+      
+      // Immediately notify clients of STOPPING state so UI can update
+      streamService.broadcastToUser(userId, 'recording-status', {
+        id: recordingId,
+        status: RecordingStatus.STOPPING
+      });
       
       // If there's a current interim transcript, save it as a final chunk
       if (recordingDoc.currentInterim) {
@@ -560,6 +624,11 @@ class RecordingsService {
           status: RecordingStatus.COMPLETED,
           duration,
           fileUrl,
+        });
+        
+        // Notify clients that they should refresh recordings list
+        streamService.broadcastToUser(userId, 'recordings-refresh', {
+          timestamp: Date.now()
         });
       } catch (error) {
         console.error(`[RECORDING] Error finalizing recording ${recordingId}:`, error);
