@@ -389,23 +389,23 @@ class RecordingsService {
             duration: currentDuration
           });
         }
-      } catch (storageError) {
+      } catch (storageError: unknown) {
         console.error(`[AUDIO] Error processing chunk for recording ${recordingId}:`, storageError);
-        
+
         // If this is a critical error, mark the recording as ERROR
-        if (storageError.message && storageError.message.includes('No active upload')) {
+        if ((storageError as Error).message && (storageError as Error).message.includes('No active upload')) {
           console.log(`[AUDIO] Critical storage error for ${recordingId}, marking recording as ERROR`);
-          
+
           await Recording.findByIdAndUpdate(recordingId, {
             status: RecordingStatus.ERROR,
-            error: `Storage error: ${storageError.message}`,
+            error: `Storage error: ${(storageError as Error).message}`,
             updatedAt: new Date()
           });
-          
+
           // Notify clients about error
           streamService.broadcastToUser(recordingDoc.userId, 'recording-error', {
             id: recordingId,
-            error: `Storage error: ${storageError.message}`
+            error: `Storage error: ${(storageError as Error).message}`
           });
         }
       }
@@ -586,7 +586,7 @@ class RecordingsService {
             // Try to complete the upload
             fileUrl = await storageService.completeUpload(recordingId);
           } catch (storageError) {
-            if (storageError.message && storageError.message.includes('No active upload')) {
+            if ((storageError as Error).message && (storageError as Error).message.includes('No active upload')) {
               // If storage was marked as initialized but has no active upload,
               // initialize it and try again
               console.log(`[RECORDING] Storage marked as initialized but no active upload found`);
