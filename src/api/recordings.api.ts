@@ -25,8 +25,8 @@ function formatRecordingForApi(recording: RecordingDocument) {
 }
 
 // Use the AugmentOS SDK auth middleware
-// import { authMiddleware } from '@augmentos/sdk';
-import { AuthenticatedRequest, isaiahMiddleware } from '../middleware/isaiah.middleware';
+import { AuthenticatedRequest } from '@augmentos/sdk';
+// import { AuthenticatedRequest, isaiahMiddleware } from '../middleware/isaiah.middleware';
 
 // Note: The authMiddleware from AugmentOS SDK will:
 // 1. Verify the JWT token in the Authorization header
@@ -37,8 +37,8 @@ import { Request, Response } from 'express';
 
 
 // Get all recordings for authenticated user
-router.get('/', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  const userId = req.userId;
+router.get('/', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.authUserId;
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -54,8 +54,8 @@ router.get('/', isaiahMiddleware, async (req: AuthenticatedRequest, res: Respons
 });
 
 // Get a specific recording by ID
-router.get('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  const userId = req.userId;
+router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.authUserId;
   const { id } = req.params;
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -80,8 +80,8 @@ router.get('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Resp
 });
 
 // Start a new recording
-router.post('/start', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  const userId = req.userId;
+router.post('/start', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.authUserId;
   const { sessionId } = req.body;
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -107,8 +107,8 @@ router.post('/start', isaiahMiddleware, async (req: AuthenticatedRequest, res: R
 });
 
 // Stop an active recording
-router.post('/:id/stop', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  const userId = req.userId;
+router.post('/:id/stop', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.authUserId;
   const { id } = req.params;
   console.log(`[API] [DEBUG] Stop recording API call for recording ID: ${id} by user: ${userId}`);
   console.log(`[API] [DEBUG] Request headers: ${JSON.stringify(req.headers)}`);
@@ -143,8 +143,8 @@ router.post('/:id/stop', isaiahMiddleware, async (req: AuthenticatedRequest, res
 });
 
 // Download a recording
-router.get('/:id/download', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  const userId = req.userId;
+router.get('/:id/download', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.authUserId;
   const { id } = req.params;
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -180,8 +180,8 @@ router.get('/:id/download', isaiahMiddleware, async (req: AuthenticatedRequest, 
 });
 
 // Update a recording (e.g., rename)
-router.put('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  const userId = req.userId;
+router.put('/:id', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.authUserId;
   const { id } = req.params;
   const { title } = req.body;
 
@@ -218,8 +218,8 @@ router.put('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Resp
 });
 
 // Delete a recording
-router.delete('/:id', isaiahMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  const userId = req.userId;
+router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.authUserId;
   const { id } = req.params;
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });

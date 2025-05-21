@@ -7,7 +7,6 @@ import { TpaServer, TpaSession, ViewType } from '@augmentos/sdk';
 import path from 'path';
 import cors from 'cors';
 import express, { Express, Request, Response, NextFunction } from 'express';
-import fs from 'fs';
 import recordingsApi from './api/recordings.api';
 import transcriptsApi from './api/transcripts.api';
 import filesApi from './api/files.api';
@@ -57,7 +56,7 @@ class RecorderServer extends TpaServer {
     this.expressApp.use(express.urlencoded({ extended: true }));
 
     // Add auto-auth for development
-    this.setupDevAuth();
+    // this.setupDevAuth();
 
     // Set up API routes
     this.setupApiRoutes();
@@ -69,34 +68,34 @@ class RecorderServer extends TpaServer {
   /**
    * Set up auto-authentication for development
    */
-  private setupDevAuth(): void {
-    // Development middleware to auto-auth from localhost
-    this.expressApp.use((req: Request, res: Response, next: NextFunction) => {
-      // Check if this is a request from localhost
-      const isLocalhost = req.hostname === 'localhost' ||
-        req.hostname === '127.0.0.1' ||
-        req.ip === '127.0.0.1' ||
-        req.ip === '::1';
+  // private setupDevAuth(): void {
+  //   // Development middleware to auto-auth from localhost
+  //   this.expressApp.use((req: Request, res: Response, next: NextFunction) => {
+  //     // Check if this is a request from localhost
+  //     const isLocalhost = req.hostname === 'localhost' ||
+  //       req.hostname === '127.0.0.1' ||
+  //       req.ip === '127.0.0.1' ||
+  //       req.ip === '::1';
 
-      if (isLocalhost) {
-        // Auto-inject auth for local development
-        const userEmail = 'isaiah@mentra.glass';
-        console.log(`[DEV] Auto-authenticating as ${userEmail}`);
+  //     if (isLocalhost) {
+  //       // Auto-inject auth for local development
+  //       const userEmail = 'isaiah@mentra.glass';
+  //       console.log(`[DEV] Auto-authenticating as ${userEmail}`);
 
-        // Set auth user ID for API routes
-        (req as any).authUserId = userEmail;
+  //       // Set auth user ID for API routes
+  //       (req as any).authUserId = userEmail;
 
-        // For non-API routes, need to inject auth token into HTML
-        if (!req.path.startsWith('/api/') && req.path !== '/api') {
-          // Will inject auth token in the static file middleware
-          (req as any).autoAuth = true;
-          (req as any).userEmail = userEmail;
-        }
-      }
+  //       // For non-API routes, need to inject auth token into HTML
+  //       if (!req.path.startsWith('/api/') && req.path !== '/api') {
+  //         // Will inject auth token in the static file middleware
+  //         (req as any).autoAuth = true;
+  //         (req as any).userEmail = userEmail;
+  //       }
+  //     }
 
-      next();
-    });
-  }
+  //     next();
+  //   });
+  // }
 
   /**
    * Set up API routes
@@ -127,51 +126,51 @@ class RecorderServer extends TpaServer {
     console.log(`[SERVER] Serving static files from: ${staticFilesPath}`);
 
     // Root redirect to webview
-    this.expressApp.get('/', (req: Request, res: Response) => {
-      res.redirect('/webview');
-    });
+    // this.expressApp.get('/', (req: Request, res: Response) => {
+    //   res.redirect('/webview');
+    // });
 
-    // Special handling for webview to inject auth
-    this.expressApp.get('/webview', (req: Request, res: Response) => {
-      console.log(`[SERVER] Webview request received from ${req.ip}`);
+    // // Special handling for webview to inject auth
+    // this.expressApp.get('/webview', (req: Request, res: Response) => {
+    //   console.log(`[SERVER] Webview request received from ${req.ip}`);
 
-      const filePath = path.join(staticFilesPath, 'index.html');
+    //   const filePath = path.join(staticFilesPath, 'index.html');
 
-      try {
-        let html = fs.readFileSync(filePath, 'utf8');
+    //   try {
+    //     let html = fs.readFileSync(filePath, 'utf8');
 
-        // Add auto auth for local development
-        if ((req as any).autoAuth && (req as any).userEmail) {
-          console.log(`[DEV] Injecting auth for ${(req as any).userEmail}`);
+    //     // Add auto auth for local development
+    //     if ((req as any).autoAuth && (req as any).userEmail) {
+    //       console.log(`[DEV] Injecting auth for ${(req as any).userEmail}`);
 
-          html = html.replace(
-            '<head>',
-            `<head>
-    <script>
-      // Auto-authentication for local development
-      window.AUTH_TOKEN = "dev_auto_auth_token";
-      window.USER_EMAIL = "${(req as any).userEmail}";
+    //       html = html.replace(
+    //         '<head>',
+    //         `<head>
+    // <script>
+    //   // Auto-authentication for local development
+    //   window.AUTH_TOKEN = "dev_auto_auth_token";
+    //   window.USER_EMAIL = "${(req as any).userEmail}";
       
-      // Intercept fetch to add auth token
-      const originalFetch = window.fetch;
-      window.fetch = function(url, options) {
-        // Add auth headers to all requests
-        options = options || {};
-        options.headers = options.headers || {};
-        options.headers['X-Auth-User'] = window.USER_EMAIL;
-        return originalFetch(url, options);
-      };
-      console.log('Auto-auth configured for local development');
-    </script>`
-          );
-        }
+    //   // Intercept fetch to add auth token
+    //   const originalFetch = window.fetch;
+    //   window.fetch = function(url, options) {
+    //     // Add auth headers to all requests
+    //     options = options || {};
+    //     options.headers = options.headers || {};
+    //     options.headers['X-Auth-User'] = window.USER_EMAIL;
+    //     return originalFetch(url, options);
+    //   };
+    //   console.log('Auto-auth configured for local development');
+    // </script>`
+    //       );
+    //     }
 
-        res.type('text/html').send(html);
-      } catch (error) {
-        console.error('[ERROR] Failed to serve webview HTML:', error);
-        res.status(500).send('Error serving webview');
-      }
-    });
+    //     res.type('text/html').send(html);
+    //   } catch (error) {
+    //     console.error('[ERROR] Failed to serve webview HTML:', error);
+    //     res.status(500).send('Error serving webview');
+    //   }
+    // });
 
     // Serve static files with caching disabled in development
     this.expressApp.use(express.static(staticFilesPath, {
@@ -180,54 +179,54 @@ class RecorderServer extends TpaServer {
       lastModified: false
     }));
 
-    // Catch-all route for client-side routing
-    this.expressApp.get('*', (req: Request, res: Response, next: NextFunction) => {
-      // Skip API routes
-      if (req.path.startsWith('/api/')) {
-        return next();
-      }
+    // // Catch-all route for client-side routing
+    // this.expressApp.get('*', (req: Request, res: Response, next: NextFunction) => {
+    //   // Skip API routes
+    //   if (req.path.startsWith('/api/')) {
+    //     return next();
+    //   }
 
-      // For all other routes, serve the index.html
-      const indexPath = path.join(staticFilesPath, 'index.html');
+    //   // For all other routes, serve the index.html
+    //   // const indexPath = path.join(staticFilesPath, 'index.html');
 
-      if (fs.existsSync(indexPath)) {
-        try {
-          let html = fs.readFileSync(indexPath, 'utf8');
+    // //   if (fs.existsSync(indexPath)) {
+    // //     try {
+    // //       let html = fs.readFileSync(indexPath, 'utf8');
 
-          // Auto-inject auth for localhost
-          if ((req as any).autoAuth && (req as any).userEmail) {
-            console.log(`[DEV] Injecting auth for path: ${req.path}`);
+    // //       // Auto-inject auth for localhost
+    // //       if ((req as any).autoAuth && (req as any).userEmail) {
+    // //         console.log(`[DEV] Injecting auth for path: ${req.path}`);
 
-            html = html.replace(
-              '<head>',
-              `<head>
-    <script>
-      // Auto-authentication for local development
-      window.AUTH_TOKEN = "dev_auto_auth_token";
-      window.USER_EMAIL = "${(req as any).userEmail}";
+    // //         html = html.replace(
+    // //           '<head>',
+    // //           `<head>
+    // // <script>
+    // //   // Auto-authentication for local development
+    // //   window.AUTH_TOKEN = "dev_auto_auth_token";
+    // //   window.USER_EMAIL = "${(req as any).userEmail}";
       
-      // Intercept fetch to add auth token
-      const originalFetch = window.fetch;
-      window.fetch = function(url, options) {
-        // Add auth headers to all requests
-        options = options || {};
-        options.headers = options.headers || {};
-        options.headers['X-Auth-User'] = window.USER_EMAIL;
-        return originalFetch(url, options);
-      };
-    </script>`
-            );
-          }
+    // //   // Intercept fetch to add auth token
+    // //   const originalFetch = window.fetch;
+    // //   window.fetch = function(url, options) {
+    // //     // Add auth headers to all requests
+    // //     options = options || {};
+    // //     options.headers = options.headers || {};
+    // //     options.headers['X-Auth-User'] = window.USER_EMAIL;
+    // //     return originalFetch(url, options);
+    // //   };
+    // // </script>`
+    // //         );
+    // //       }
 
-          res.type('text/html').send(html);
-        } catch (err) {
-          console.error(`[ERROR] Failed to serve index.html: ${err}`);
-          next(err);
-        }
-      } else {
-        next(); // Let the next middleware handle it
-      }
-    });
+    // //       res.type('text/html').send(html);
+    // //     } catch (err) {
+    // //       console.error(`[ERROR] Failed to serve index.html: ${err}`);
+    // //       next(err);
+    // //     }
+    // //   } else {
+    // //     next(); // Let the next middleware handle it
+    // //   }
+    // });
   }
 
   /**

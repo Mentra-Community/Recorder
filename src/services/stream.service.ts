@@ -43,13 +43,13 @@ class StreamService {
   /**
    * Broadcast to all clients
    */
-  broadcast(event: string, data: any): void {
-    const eventString = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  // broadcast(event: string, data: any): void {
+  //   const eventString = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     
-    this.clients.forEach(client => {
-      client.write(eventString);
-    });
-  }
+  //   this.clients.forEach(client => {
+  //     client.write(eventString);
+  //   });
+  // }
   
   /**
    * Broadcast to specific user's clients

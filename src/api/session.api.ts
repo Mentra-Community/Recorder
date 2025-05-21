@@ -3,9 +3,10 @@
  * Endpoints for querying TPA session status
  */
 
+import { AuthenticatedRequest } from '@augmentos/sdk';
 import { Router } from 'express';
 import { Request, Response } from 'express';
-import { AuthenticatedRequest, isaiahMiddleware } from '../middleware/isaiah.middleware';
+// import { AuthenticatedRequest, isaiahMiddleware } from '../middleware/isaiah.middleware';
 
 const router = Router();
 
@@ -42,8 +43,8 @@ export function hasActiveSession(userId: string): boolean {
  * GET /api/session/is-connected
  * Check if the authenticated user has an active TPA session
  */
-router.get('/is-connected', isaiahMiddleware, (req: AuthenticatedRequest, res: Response) => {
-  const userId = req.userId;
+router.get('/is-connected', (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.authUserId;
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }

@@ -9,23 +9,16 @@ import { Readable } from 'stream';
 class StorageService {
   private r2Client: S3Client;
   private bucketName: string;
-  
+
   // Active uploads
   private activeUploads: Map<string, {
     userId: string;
     chunks: Buffer[];
     totalBytes: number;
   }> = new Map();
-  
+
   constructor() {
     // Initialize R2 client
-    this.initR2Client();
-  }
-  
-  /**
-   * Initialize R2 client
-   */
-  private initR2Client() {
     try {
       const r2Config = {
         region: 'auto',
@@ -35,7 +28,7 @@ class StorageService {
           secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || ''
         }
       };
-      
+
       this.r2Client = new S3Client(r2Config);
       this.bucketName = process.env.R2_BUCKET_NAME || 'recorder';
       console.log('[STORAGE] R2 client initialized successfully');
@@ -44,19 +37,19 @@ class StorageService {
       throw new Error('Failed to initialize R2 client');
     }
   }
-  
+
   /**
    * Begin streaming upload - called when starting a recording
    */
   async beginStreamingUpload(userId: string, recordingId: string): Promise<void> {
     console.log(`[STORAGE] Beginning streaming upload for recording ${recordingId}`);
-    
+
     // Make sure we don't already have an upload for this ID
     if (this.activeUploads.has(recordingId)) {
       console.log(`[STORAGE] Upload already exists for recording ${recordingId}, resetting`);
       this.activeUploads.delete(recordingId);
     }
-    
+
     // Create a new upload
     this.activeUploads.set(recordingId, {
       userId,
@@ -64,7 +57,7 @@ class StorageService {
       totalBytes: 0
     });
   }
-  
+
   /**
    * Add an audio chunk to the active recording
    */
@@ -73,15 +66,15 @@ class StorageService {
     if (!upload) {
       throw new Error(`[STORAGE] No active upload for ${recordingId}`);
     }
-    
+
     try {
       // Convert ArrayBuffer to Buffer
       const buffer = Buffer.from(chunk);
-      
+
       // Add to buffer
       upload.chunks.push(buffer);
       upload.totalBytes += buffer.length;
-      
+
       // Return true if we've accumulated enough data to be significant
       const SIGNIFICANT_DATA_THRESHOLD = 10 * 1024; // 10KB
       return upload.totalBytes >= SIGNIFICANT_DATA_THRESHOLD;
@@ -90,31 +83,31 @@ class StorageService {
       return false;
     }
   }
-  
+
   /**
    * Complete the upload - called when stopping a recording
    */
   async completeUpload(recordingId: string): Promise<string> {
     console.log(`[STORAGE] Completing upload for recording ${recordingId}`);
-    
+
     const upload = this.activeUploads.get(recordingId);
     if (!upload) {
       throw new Error(`[STORAGE] No active upload for ${recordingId}`);
     }
-    
+
     const userId = upload.userId;
     const fileName = `${recordingId}.wav`;
-    
+
     try {
       // Combine all chunks into a single buffer with WAV header
       let finalBuffer: Buffer;
       let dataSize = 0;
-      
+
       // Check if we have any chunks at all
       if (upload.chunks.length > 0) {
         dataSize = upload.totalBytes;
         const header = this.createWavHeader(dataSize);
-        
+
         // Combine all chunks with header
         finalBuffer = Buffer.concat([header, ...upload.chunks]);
       } else {
@@ -123,49 +116,49 @@ class StorageService {
         dataSize = 0;
         finalBuffer = this.createWavHeader(dataSize);
       }
-      
+
       // Log file size
       console.log(`[STORAGE] Final WAV file for ${recordingId} is ${finalBuffer.length} bytes (${dataSize} bytes of audio data)`);
-      
+
       // Upload to R2
       const r2Key = `${userId}/${fileName}`;
-      
+
       await this.r2Client.send(new PutObjectCommand({
         Bucket: this.bucketName,
         Key: r2Key,
         Body: finalBuffer,
         ContentType: 'audio/wav'
       }));
-      
+
       const r2Url = `${process.env.R2_PUBLIC_URL || `https://${this.bucketName}.${process.env.R2_ENDPOINT}`}/${r2Key}`;
       console.log(`[STORAGE] Uploaded to R2: ${r2Url}`);
-      
+
       // Clean up
       this.activeUploads.delete(recordingId);
-      
+
       return r2Url;
     } catch (error) {
       console.error(`[STORAGE] Error completing upload for ${recordingId}:`, error);
-      
+
       // Ensure we always clean up the active upload, even on error
       this.activeUploads.delete(recordingId);
-      
+
       throw error;
     }
   }
-  
+
   /**
    * Create WAV header for audio data
    */
   private createWavHeader(totalBytes: number): Buffer {
     // WAV header is 44 bytes
     const header = Buffer.alloc(44);
-    
+
     // RIFF chunk descriptor
     header.write('RIFF', 0);                                // ChunkID
     header.writeUInt32LE(36 + totalBytes, 4);               // ChunkSize: 4 + (8 + SubChunk1Size) + (8 + SubChunk2Size)
     header.write('WAVE', 8);                                // Format
-    
+
     // "fmt " sub-chunk
     header.write('fmt ', 12);                               // Subchunk1ID
     header.writeUInt32LE(16, 16);                           // Subchunk1Size (16 for PCM)
@@ -175,32 +168,32 @@ class StorageService {
     header.writeUInt32LE(16000 * 2, 28);                    // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
     header.writeUInt16LE(2, 32);                            // BlockAlign (NumChannels * BitsPerSample/8)
     header.writeUInt16LE(16, 34);                           // BitsPerSample (16 bits)
-    
+
     // "data" sub-chunk
     header.write('data', 36);                               // Subchunk2ID
     header.writeUInt32LE(totalBytes, 40);                   // Subchunk2Size (number of bytes in the data)
-    
+
     return header;
   }
-  
+
   /**
    * Get a file - used for downloads
    */
   async getFile(userId: string, recordingId: string): Promise<Buffer> {
     const filePath = `${userId}/${recordingId}.wav`;
-    
+
     try {
       console.log(`[STORAGE] Fetching file from R2: ${filePath}`);
       const command = new GetObjectCommand({
         Bucket: this.bucketName,
         Key: filePath
       });
-      
+
       const response = await this.r2Client.send(command);
       if (!response.Body) {
         throw new Error('[STORAGE] No file data returned from R2');
       }
-      
+
       const stream = response.Body as Readable;
       return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
@@ -213,14 +206,14 @@ class StorageService {
       throw error;
     }
   }
-  
+
   /**
    * Delete a file
    */
   async deleteFile(userId: string, recordingId: string): Promise<void> {
     const key = `${userId}/${recordingId}.wav`;
     console.log(`[STORAGE] Deleting file from R2: ${key}`);
-    
+
     try {
       await this.r2Client.send(new DeleteObjectCommand({
         Bucket: this.bucketName,
@@ -231,7 +224,7 @@ class StorageService {
       throw error;
     }
   }
-  
+
   /**
    * Check if an upload exists for a recording
    */
