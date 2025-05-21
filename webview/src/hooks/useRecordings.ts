@@ -59,11 +59,13 @@ export function useRecordings(options: UseRecordingsOptions = {}) {
 
   // Initial load - just fetch once
   useEffect(() => {
+    // Use the function references directly inside the effect
+    // This ensures we only run this once when the component mounts
     fetchRecordings();
     checkSessionStatus();
     
-    // No complex polling or timeout logic needed
-  }, [fetchRecordings, checkSessionStatus]);
+    // Empty dependency array ensures this only runs once
+  }, []);
 
   // Listen for real-time updates to recording status
   useRealTimeEvents('recording-status', (updatedRecording: any) => {
