@@ -8,7 +8,7 @@
     "dev:webview": "cd webview && bun run dev",
     "dev:concurrent": "bun run dev:webview & bun run dev:server",
     "dev:build": "cd webview && bun run build && cd .. && bun --hot server/src/app.ts",
-    "build": "cd webview && bun run build && cd .. && bun build ./src/app.ts --outdir ./dist --target bun",
+    "build": "cd webview && bun i && bun run build && cd .. && bun build ./src/app.ts --outdir ./dist --target bun",
     "start": "bun src/app.ts",
     "clean-wav-files": "bun run server/src/scripts/clean-wav-files.ts",
     "docker:dev": "docker-compose -f docker/docker-compose.dev.yml -p dev up",
