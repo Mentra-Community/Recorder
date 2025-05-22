@@ -2,7 +2,7 @@
     push:
         branches:
             - main
-name: "[prod] 🚀 Deploy to Porter.run"
+name: "[prod] 🚀 Deploy Recorder 🎙️ to Porter.run"
 jobs:
     porter-deploy:
         runs-on: ubuntu-latest
@@ -18,7 +18,7 @@ jobs:
               timeout-minutes: 30
               run: exec porter apply -f ./porter.yaml
               env:
-                PORTER_APP_NAME: live-captions-prod
+                PORTER_APP_NAME: recorder
                 PORTER_NAMESPACE: prod
                 NODE_ENV: production
                 PORTER_CLUSTER: "4689"

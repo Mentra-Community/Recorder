@@ -8,13 +8,13 @@ interface PlaybackImprovedProps {
   onDelete?: (id: string) => Promise<void>;
   recordingId?: string;
   recording?: RecordingI;
-  getDownloadUrl?: (id: string) => string;
+  getDownloadUrl?: (id: string) => Promise<string>;
 }
 
-const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({ 
-  recordingId, 
+const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
+  recordingId,
   recording,
-  onBack, 
+  onBack,
   onDelete,
   getDownloadUrl
 }) => {
@@ -25,29 +25,33 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [progress, setProgress] = useState(0);
-  
+
   // References
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
-  
+
   // Initialize audio on mount and cleanup on unmount
   useEffect(() => {
     // Create audio element
     const audio = new Audio();
     audio.preload = 'auto';
     audioRef.current = audio;
-    
+
     // Set up event listeners
     audio.addEventListener('canplay', handleCanPlay);
     audio.addEventListener('loadedmetadata', handleMetadataLoaded);
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('error', handleError);
     audio.addEventListener('timeupdate', handleTimeUpdate);
-    
+
     // Cleanup function
     return () => {
       // Stop playback and progress tracking
       if (audio) {
+        // If using a blob URL, revoke it to prevent memory leaks
+        if (audio.src && audio.src.startsWith('blob:')) {
+          URL.revokeObjectURL(audio.src);
+        }
         audio.pause();
         audio.src = '';
       }
@@ -62,11 +66,11 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
       audio.removeEventListener('timeupdate', handleTimeUpdate);
     };
   }, []);
-  
+
   // Load audio when recordingId changes
   useEffect(() => {
     if (!recordingId || !getDownloadUrl || !audioRef.current) return;
-    
+
     // Reset state
     setIsPlaying(false);
     setCurrentTime(0);
@@ -75,43 +79,72 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
     setIsLoading(true);
     setError(null);
     
+    // Clean up previous blob URL if exists
+    const audio = audioRef.current;
+    if (audio && audio.src && audio.src.startsWith('blob:')) {
+      URL.revokeObjectURL(audio.src);
+      audio.src = '';
+    }
+
     // Stop progress tracking
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
     }
-    
-    try {
-      // Get the download URL with a cache buster
-      const timestamp = Date.now();
-      const url = `${getDownloadUrl(recordingId)}?t=${timestamp}`;
-      console.log(`[PLAYER] Loading audio from URL: ${url}`);
-      
-      // Load the audio
-      const audio = audioRef.current;
-      audio.src = url;
-      audio.load();
-      
-      // Set a fallback timeout in case events don't fire
-      setTimeout(() => {
-        if (isLoading && audioRef.current) {
-          console.log('[PLAYER] Using fallback timeout to enable playback');
-          setIsLoading(false);
+
+    // Create an async function inside the effect
+    const loadAudio = async () => {
+      try {
+        // Show loading state
+        setIsLoading(true);
+
+        if (!getDownloadUrl || !recordingId) {
+          throw new Error('Download URL function or recording ID not provided');
         }
-      }, 5000);
-    } catch (err) {
-      console.error('[PLAYER] Error setting audio source:', err);
-      setError('Failed to load audio');
-      setIsLoading(false);
-    }
+
+        // Get the blob URL directly from our enhanced getDownloadUrl function
+        // This now returns a blob URL that already has authentication baked in
+        const url = await getDownloadUrl(recordingId);
+        console.log(`[PLAYER] Loading audio from URL: ${url}`);
+        
+        if (url.startsWith('error:')) {
+          throw new Error(url.replace('error:', ''));
+        }
+
+        // Load the audio
+        const audio = audioRef.current;
+        if (!audio) {
+          throw new Error('Audio element not initialized');
+        }
+
+        // Using blob URL means we don't need crossOrigin
+        audio.src = url;
+        audio.load();
+
+        // Set a fallback timeout in case events don't fire
+        setTimeout(() => {
+          if (isLoading && audioRef.current) {
+            console.log('[PLAYER] Using fallback timeout to enable playback');
+            setIsLoading(false);
+          }
+        }, 5000);
+      } catch (err) {
+        console.error('[PLAYER] Error setting audio source:', err);
+        setError('Failed to load audio');
+        setIsLoading(false);
+      }
+    };
+
+    // Call the async function
+    loadAudio();
   }, [recordingId, getDownloadUrl]);
-  
+
   // Event handlers
   const handleCanPlay = () => {
     console.log('[PLAYER] Audio can play');
     setIsLoading(false);
   };
-  
+
   const handleMetadataLoaded = () => {
     const audio = audioRef.current;
     if (audio) {
@@ -121,7 +154,7 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
       }
     }
   };
-  
+
   const handleTimeUpdate = () => {
     const audio = audioRef.current;
     if (audio) {
@@ -131,39 +164,39 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
       }
     }
   };
-  
+
   const handleEnded = () => {
     console.log('[PLAYER] Playback ended');
     setIsPlaying(false);
     setCurrentTime(0);
     setProgress(0);
-    
+
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
     }
   };
-  
+
   const handleError = (e: Event) => {
     const audio = audioRef.current as HTMLAudioElement;
     const errorCode = audio.error ? audio.error.code : 'unknown';
     const errorMessage = audio.error ? audio.error.message : 'unknown error';
-    
-    console.error(`[PLAYER] Audio error: code=${errorCode}, message=${errorMessage}`);
+
+    console.error({ e }, `[PLAYER] Audio error: code=${errorCode}, message=${errorMessage}`);
     setError(`Failed to load audio: ${errorMessage}`);
     setIsLoading(false);
   };
-  
+
   // Playback controls
   const togglePlayback = async () => {
     const audio = audioRef.current;
     if (!audio) return;
-    
+
     try {
       if (isPlaying) {
         audio.pause();
         setIsPlaying(false);
-        
+
         if (progressIntervalRef.current) {
           clearInterval(progressIntervalRef.current);
           progressIntervalRef.current = null;
@@ -178,14 +211,14 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
       setError('Failed to play audio');
     }
   };
-  
+
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newProgress = parseInt(e.target.value);
     setProgress(newProgress);
-    
+
     const audio = audioRef.current;
     if (!audio) return;
-    
+
     if (duration && isFinite(duration) && duration > 0) {
       const newTime = (duration * newProgress) / 100;
       audio.currentTime = newTime;
@@ -198,21 +231,33 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
       setCurrentTime(newTime);
     }
   };
-  
-  const handleLoadAudioAgain = () => {
+
+  const handleLoadAudioAgain = async () => {
     if (!recordingId || !getDownloadUrl || !audioRef.current) return;
-    
+
     try {
-      // Get the download URL with a new cache buster
-      const timestamp = Date.now();
-      const url = `${getDownloadUrl(recordingId)}?retry=true&t=${timestamp}`;
+      setIsLoading(true);
+      setError(null);
+      
+      // Clean up previous blob URL if exists
+      const audio = audioRef.current;
+      if (audio && audio.src && audio.src.startsWith('blob:')) {
+        URL.revokeObjectURL(audio.src);
+        audio.src = '';
+      }
+      
+      // Get a fresh blob URL directly
+      const url = await getDownloadUrl(recordingId);
       console.log(`[PLAYER] Retrying audio load from URL: ${url}`);
       
+      if (url.startsWith('error:')) {
+        throw new Error(url.replace('error:', ''));
+      }
+      
       // Load the audio
-      const audio = audioRef.current;
       audio.src = url;
       audio.load();
-      
+
       // Try playing after loading
       setTimeout(() => {
         audio.play()
@@ -227,9 +272,11 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
       }, 1000);
     } catch (err) {
       console.error('[PLAYER] Error reloading audio:', err);
+      setError('Failed to reload audio. Please try again.');
+      setIsLoading(false);
     }
   };
-  
+
   const handleBack = () => {
     if (onBack) onBack();
   };
@@ -244,14 +291,38 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     // Always use the backend API for downloads
     if (recordingId && getDownloadUrl) {
-      const url = getDownloadUrl(recordingId);
-      window.open(url, '_blank');
+      try {
+        setIsLoading(true);
+        const url = await getDownloadUrl(recordingId);
+        console.log(`[PLAYER] Opening download URL: ${url}`);
+        
+        if (url.startsWith('error:')) {
+          throw new Error(url.replace('error:', ''));
+        }
+        
+        // For blob URL downloads, we create a download link with the correct filename
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${recording?.title || 'recording'}.mp3`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        // Revoke the URL to free memory
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+        
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Failed to get download URL:', error);
+        setError('Failed to download recording');
+        setIsLoading(false);
+      }
     }
   };
-  
+
   // If we don't have a recording yet, show loading
   if (!recording) {
     return (
@@ -262,8 +333,8 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
           ) : (
             <div className="text-red-500">{error || 'Recording not found'}</div>
           )}
-          <button 
-            className="mt-4 px-4 py-2 bg-gray-200 rounded" 
+          <button
+            className="mt-4 px-4 py-2 bg-gray-200 rounded"
             onClick={handleBack}
           >
             Go Back
@@ -295,7 +366,7 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
           </button>
         </div>
       </header>
-      
+
       {/* Recording metadata */}
       <div className="px-4 py-3 flex items-center justify-between border-b border-gray-300 bg-gray-50">
         <div className="text-gray-600">
@@ -308,7 +379,7 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
           </button>
         </div>
       </div>
-      
+
       {/* Transcript text with language indicator inline */}
       <div className="px-4 py-4 flex-1 overflow-y-auto bg-gray-50">
         <div className="flex items-center mb-2">
@@ -319,7 +390,7 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
           {recording.transcript || 'No transcript available'}
         </p>
       </div>
-      
+
       {/* Playback controls at bottom */}
       <div className="fixed bottom-0 left-0 right-0 pb-6 pt-3 bg-gray-50 flex flex-col items-center border-t border-gray-300">
         {/* Debug info and reload button */}
@@ -328,7 +399,7 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
             <div className="mb-1 text-xs text-gray-500">
               {error ? `Error: ${error}` : 'Loading audio...'}
             </div>
-            <button 
+            <button
               onClick={handleLoadAudioAgain}
               className="px-3 py-1 bg-gray-200 text-gray-800 rounded text-xs"
             >
@@ -336,27 +407,27 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
             </button>
           </div>
         )}
-        
+
         {/* Audio scrubber */}
         <div className="w-full px-4 mb-2">
-          <input 
-            type="range" 
-            min="0" 
-            max="100" 
-            value={progress} 
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={progress}
             onChange={handleSeek}
             disabled={isLoading}
             className={`w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-900`}
           />
         </div>
-        
+
         <div className="text-center mb-2">
           <span className="font-mono">{formatDuration(currentTime)}</span>
           {duration > 0 && (
             <span className="font-mono text-gray-500"> / {formatDuration(duration)}</span>
           )}
         </div>
-        
+
         <button
           onClick={togglePlayback}
           disabled={isLoading}

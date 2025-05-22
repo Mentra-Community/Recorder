@@ -1,7 +1,7 @@
 "on":
     push:
         branches:
-            - dev
+            - never
 name: "[dev] 🚀 Deploy to Porter.run"
 jobs:
     porter-deploy:
@@ -18,7 +18,7 @@ jobs:
               timeout-minutes: 30
               run: exec porter apply -f ./porter.yaml
               env:
-                PORTER_APP_NAME: live-captions-dev
+                PORTER_APP_NAME: recorder-dev
                 PORTER_NAMESPACE: dev
                 NODE_ENV: development
                 PORTER_CLUSTER: "4689"

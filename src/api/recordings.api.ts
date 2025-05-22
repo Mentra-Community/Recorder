@@ -9,8 +9,70 @@ import storageService from '../services/storage.service';
 import path from 'path';
 import fs from 'fs';
 import { RecordingDocument } from '../models/recording.models';
+import crypto from 'crypto';
 
 const router = Router();
+
+// Secret key for token signing - in production, this should be an environment variable
+const AUGMENTOS_API_KEY = process.env.AUGMENTOS_API_KEY;
+if (!AUGMENTOS_API_KEY) {
+  throw new Error('AUGMENTOS_API_KEY is not set. Please set it in your environment variables.');
+}
+
+/**
+ * Generate a signed download token for secure file access
+ */
+function generateDownloadToken(userId: string, recordingId: string, expiresAt: number): string {
+  // Create a payload
+  const payload = {
+    userId,
+    recordingId,
+    expiresAt
+  };
+  
+  // Convert to string
+  const payloadStr = JSON.stringify(payload);
+  
+  // Create a signature using HMAC
+  const hmac = crypto.createHmac('sha256', AUGMENTOS_API_KEY as string);
+  hmac.update(payloadStr);
+  const signature = hmac.digest('hex');
+  
+  // Combine payload and signature
+  const token = Buffer.from(payloadStr + '.' + signature).toString('base64');
+  return token;
+}
+
+/**
+ * Verify a download token
+ */
+function verifyDownloadToken(token: string): { userId: string; recordingId: string; expiresAt: number } | null {
+  try {
+    // Decode token
+    const decoded = Buffer.from(token, 'base64').toString();
+    const [payloadStr, signature] = decoded.split('.');
+    
+    if (!payloadStr || !signature) {
+      return null;
+    }
+    
+    // Verify signature
+    const hmac = crypto.createHmac('sha256', AUGMENTOS_API_KEY as string);
+    hmac.update(payloadStr);
+    const expectedSignature = hmac.digest('hex');
+    
+    if (signature !== expectedSignature) {
+      return null;
+    }
+    
+    // Parse payload
+    const payload = JSON.parse(payloadStr);
+    return payload;
+  } catch (error) {
+    console.error('Error verifying token:', error);
+    return null;
+  }
+}
 
 // Helper function to convert _id to id for frontend compatibility
 function formatRecordingForApi(recording: RecordingDocument) {
@@ -142,7 +204,91 @@ router.post('/:id/stop', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-// Download a recording
+// Generate a signed download token
+router.get('/:id/download-token', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.authUserId;
+  const { id } = req.params;
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    // First check if the recording exists and belongs to the user
+    const recording = await recordingsService.getRecordingById(id);
+
+    if (!recording) {
+      return res.status(404).json({ error: 'Recording not found' });
+    }
+
+    if (recording.userId !== userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    
+    // Generate a signed token (expires in 10 minutes)
+    const expirationTime = Date.now() + 10 * 60 * 1000; // 10 minutes
+    const token = generateDownloadToken(userId, id, expirationTime);
+    
+    // Return the token and the URL to use
+    return res.json({
+      token: token,
+      downloadUrl: `/api/recordings/${id}/download-by-token?token=${token}`,
+      expiresAt: expirationTime
+    });
+  } catch (error) {
+    console.error(`[DOWNLOAD TOKEN] Error generating token for ${id}:`, error);
+    return res.status(500).json({ error: 'Error generating download token' });
+  }
+});
+
+// Download a recording with a signed token
+router.get('/:id/download-by-token', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { token } = req.query;
+  
+  if (!token || typeof token !== 'string') {
+    return res.status(401).json({ error: 'Missing or invalid token' });
+  }
+  
+  try {
+    // Verify the token
+    const tokenData = verifyDownloadToken(token);
+    
+    if (!tokenData) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    
+    const { userId, recordingId, expiresAt } = tokenData;
+    
+    // Check if token is expired
+    if (Date.now() > expiresAt) {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+    
+    // Verify that token is for the correct recording
+    if (recordingId !== id) {
+      return res.status(401).json({ error: 'Token does not match recording ID' });
+    }
+    
+    console.log(`[DOWNLOAD] Getting file for user: ${userId}, recording: ${id} via token`);
+    const fileData = await storageService.getFile(userId, id);
+
+    // Set headers for WAV
+    res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Content-Disposition', `attachment; filename="${id}.wav"`);
+
+    // Send the file
+    return res.send(fileData);
+  } catch (storageError) {
+    console.log(`[DOWNLOAD] Storage service failed: ${storageError}`);
+    return res.status(404).json({
+      error: 'Recording file not found',
+      id: id,
+      message: 'The audio file for this recording could not be found.'
+    });
+  }
+});
+
+// Keep the original endpoint for backward compatibility but add a warning
 router.get('/:id/download', async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.authUserId;
   const { id } = req.params;
@@ -150,7 +296,8 @@ router.get('/:id/download', async (req: AuthenticatedRequest, res: Response) => 
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  console.log(`[DOWNLOAD] Request for recording ID: ${id} from user: ${userId}`);
+  console.log(`[DOWNLOAD] WARNING: Using deprecated direct download route for ID: ${id}, user: ${userId}`);
+  console.log(`[DOWNLOAD] This route may not work in browsers. Use /download-token instead.`);
 
   try {
     console.log(`[DOWNLOAD] Getting file from storage service: ${id}`);
@@ -164,13 +311,6 @@ router.get('/:id/download', async (req: AuthenticatedRequest, res: Response) => 
     return res.send(fileData);
   } catch (storageError) {
     console.log({storageError}, `[DOWNLOAD] Storage service failed`);
-
-    // DEBUGGING: Log that we reached this point - the specific file was not found
-    console.log(`[DOWNLOAD] [DEBUG] ⚠️ File not found in either local storage or R2: ${id}.wav`);
-    console.log(`[DOWNLOAD] [DEBUG] Call stack: ${new Error().stack}`);
-
-    // Return a proper 404 error
-    console.log(`[DOWNLOAD] [DEBUG] Returning 404 - Not Found for ${id}.wav`);
     return res.status(404).json({
       error: 'Recording file not found',
       id: id,

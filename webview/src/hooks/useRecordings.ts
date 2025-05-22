@@ -206,8 +206,8 @@ export function useRecordings(options: UseRecordingsOptions = {}) {
     }
   }, []);
 
-  // Get download URL
-  const getDownloadUrl = useCallback((id: string): string => {
+  // Get download URL - async to get signed token
+  const getDownloadUrl = useCallback(async (id: string): Promise<string> => {
     return api.recordings.getDownloadUrl(id);
   }, []);
 

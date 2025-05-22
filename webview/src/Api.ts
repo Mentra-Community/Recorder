@@ -76,9 +76,26 @@ const api = {
       });
     },
     
-    getDownloadUrl: (id: string): string => {
-      // With proxy, we can use relative URL
-      return `/api/recordings/${id}/download`;
+    getDownloadUrl: async (id: string): Promise<string> => {
+      try {
+        // Get a binary file directly instead of using tokens
+        // This uses axios which correctly sends auth cookies
+        const response = await axiosInstance.get(`/api/recordings/${id}/download`, {
+          headers: getAuthHeader(),
+          responseType: 'blob'
+        });
+        
+        // Create a blob URL that can be used directly without auth
+        const blob = new Blob([response.data], { type: response.headers['content-type'] || 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        
+        // Return the blob URL which doesn't need auth
+        return url;
+      } catch (error) {
+        console.error('Error getting download URL:', error);
+        // Return a special error indicator
+        return 'error:failed-to-get-recording';
+      }
     },
     
     update: async (id: string, data: { title: string }): Promise<RecordingI> => {
