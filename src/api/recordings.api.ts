@@ -38,8 +38,15 @@ function generateDownloadToken(userId: string, recordingId: string, expiresAt: n
   hmac.update(payloadStr);
   const signature = hmac.digest('hex');
   
-  // Combine payload and signature
-  const token = Buffer.from(payloadStr + '.' + signature).toString('base64');
+  // Use URL-safe base64 encoding (replace +, / and = characters)
+  const token = Buffer.from(payloadStr + '.' + signature)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+    
+  console.log(`[TOKEN] Generated token for user ${userId}, recording ${recordingId}, expires ${new Date(expiresAt).toISOString()}`);
+  
   return token;
 }
 
@@ -48,11 +55,34 @@ function generateDownloadToken(userId: string, recordingId: string, expiresAt: n
  */
 function verifyDownloadToken(token: string): { userId: string; recordingId: string; expiresAt: number } | null {
   try {
+    console.log(`[TOKEN] Verifying token: ${token.substring(0, 20)}...`);
+    
+    // Convert URL-safe base64 back to regular base64
+    const base64Token = token
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    
+    // Add padding if needed
+    let paddedToken = base64Token;
+    while (paddedToken.length % 4 !== 0) {
+      paddedToken += '=';
+    }
+    
     // Decode token
-    const decoded = Buffer.from(token, 'base64').toString();
-    const [payloadStr, signature] = decoded.split('.');
+    const decoded = Buffer.from(paddedToken, 'base64').toString();
+    
+    // Find the last occurrence of . which separates payload from signature
+    const lastDotIndex = decoded.lastIndexOf('.');
+    if (lastDotIndex === -1) {
+      console.log(`[TOKEN] No dot separator found in token`);
+      return null;
+    }
+    
+    const payloadStr = decoded.substring(0, lastDotIndex);
+    const signature = decoded.substring(lastDotIndex + 1);
     
     if (!payloadStr || !signature) {
+      console.log(`[TOKEN] Missing payload or signature`);
       return null;
     }
     
@@ -62,14 +92,16 @@ function verifyDownloadToken(token: string): { userId: string; recordingId: stri
     const expectedSignature = hmac.digest('hex');
     
     if (signature !== expectedSignature) {
+      console.log(`[TOKEN] Signature mismatch`);
       return null;
     }
     
     // Parse payload
     const payload = JSON.parse(payloadStr);
+    console.log(`[TOKEN] Token valid for user ${payload.userId}, recording ${payload.recordingId}`);
     return payload;
   } catch (error) {
-    console.error('Error verifying token:', error);
+    console.error('[TOKEN] Error verifying token:', error);
     return null;
   }
 }
@@ -224,8 +256,8 @@ router.get('/:id/download-token', async (req: AuthenticatedRequest, res: Respons
       return res.status(403).json({ error: 'Forbidden' });
     }
     
-    // Generate a signed token (expires in 10 minutes)
-    const expirationTime = Date.now() + 10 * 60 * 1000; // 10 minutes
+    // Generate a signed token (expires in 60 minutes)
+    const expirationTime = Date.now() + 60 * 60 * 1000; // 60 minutes
     const token = generateDownloadToken(userId, id, expirationTime);
     
     // Return the token and the URL to use
@@ -245,27 +277,38 @@ router.get('/:id/download-by-token', async (req: Request, res: Response) => {
   const { id } = req.params;
   const { token } = req.query;
   
+  console.log(`[DOWNLOAD] Received download request for recording ${id} with token: ${token ? `${token.toString().substring(0, 20)}...` : 'missing'}`);
+  
   if (!token || typeof token !== 'string') {
+    console.log(`[DOWNLOAD] Error: Missing or invalid token`);
     return res.status(401).json({ error: 'Missing or invalid token' });
   }
   
   try {
+    // URL decode the token (since it may be URL-encoded by the client)
+    const decodedToken = decodeURIComponent(token);
+    console.log(`[DOWNLOAD] Token received - length: ${decodedToken.length}`);
+    
     // Verify the token
-    const tokenData = verifyDownloadToken(token);
+    const tokenData = verifyDownloadToken(decodedToken);
     
     if (!tokenData) {
-      return res.status(401).json({ error: 'Invalid or expired token' });
+      console.log(`[DOWNLOAD] Error: Invalid token - verification failed`);
+      return res.status(401).json({ error: 'Invalid token - verification failed' });
     }
     
     const { userId, recordingId, expiresAt } = tokenData;
+    console.log(`[DOWNLOAD] Token verified. UserId: ${userId}, RecordingId: ${recordingId}, Expires: ${new Date(expiresAt).toISOString()}`);
     
     // Check if token is expired
     if (Date.now() > expiresAt) {
+      console.log(`[DOWNLOAD] Error: Token expired at ${new Date(expiresAt).toISOString()}, current time: ${new Date().toISOString()}`);
       return res.status(401).json({ error: 'Token expired' });
     }
     
     // Verify that token is for the correct recording
     if (recordingId !== id) {
+      console.log(`[DOWNLOAD] Error: Token for recording ${recordingId}, but requested ${id}`);
       return res.status(401).json({ error: 'Token does not match recording ID' });
     }
     
@@ -275,11 +318,21 @@ router.get('/:id/download-by-token', async (req: Request, res: Response) => {
     // Set headers for WAV
     res.setHeader('Content-Type', 'audio/wav');
     res.setHeader('Content-Disposition', `attachment; filename="${id}.wav"`);
+    
+    // Add cache control headers to prevent browser caching
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
+    // Enable CORS for direct browser access
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
 
     // Send the file
+    console.log(`[DOWNLOAD] Sending file - size: ${fileData.length} bytes`);
     return res.send(fileData);
   } catch (storageError) {
-    console.log(`[DOWNLOAD] Storage service failed: ${storageError}`);
+    console.log(`[DOWNLOAD] Storage service failed:`, storageError);
     return res.status(404).json({
       error: 'Recording file not found',
       id: id,

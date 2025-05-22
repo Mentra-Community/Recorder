@@ -8,6 +8,7 @@ interface PlaybackImprovedProps {
   onDelete?: (id: string) => Promise<void>;
   recordingId?: string;
   recording?: RecordingI;
+  getPlaybackUrl?: (id: string) => Promise<string>;
   getDownloadUrl?: (id: string) => Promise<string>;
 }
 
@@ -16,6 +17,7 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
   recording,
   onBack,
   onDelete,
+  getPlaybackUrl,
   getDownloadUrl
 }) => {
   // Component state
@@ -69,7 +71,7 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
 
   // Load audio when recordingId changes
   useEffect(() => {
-    if (!recordingId || !getDownloadUrl || !audioRef.current) return;
+    if (!recordingId || !getPlaybackUrl || !audioRef.current) return;
 
     // Reset state
     setIsPlaying(false);
@@ -98,13 +100,13 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
         // Show loading state
         setIsLoading(true);
 
-        if (!getDownloadUrl || !recordingId) {
-          throw new Error('Download URL function or recording ID not provided');
+        if (!getPlaybackUrl || !recordingId) {
+          throw new Error('Playback URL function or recording ID not provided');
         }
 
-        // Get the blob URL directly from our enhanced getDownloadUrl function
-        // This now returns a blob URL that already has authentication baked in
-        const url = await getDownloadUrl(recordingId);
+        // Get the blob URL for playback (not the download URL)
+        // This returns a blob URL that already has authentication baked in
+        const url = await getPlaybackUrl(recordingId);
         console.log(`[PLAYER] Loading audio from URL: ${url}`);
         
         if (url.startsWith('error:')) {
@@ -137,7 +139,7 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
 
     // Call the async function
     loadAudio();
-  }, [recordingId, getDownloadUrl]);
+  }, [recordingId, getPlaybackUrl]);
 
   // Event handlers
   const handleCanPlay = () => {
@@ -233,7 +235,7 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
   };
 
   const handleLoadAudioAgain = async () => {
-    if (!recordingId || !getDownloadUrl || !audioRef.current) return;
+    if (!recordingId || !getPlaybackUrl || !audioRef.current) return;
 
     try {
       setIsLoading(true);
@@ -246,8 +248,8 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
         audio.src = '';
       }
       
-      // Get a fresh blob URL directly
-      const url = await getDownloadUrl(recordingId);
+      // Get a fresh blob URL for playback
+      const url = await getPlaybackUrl(recordingId);
       console.log(`[PLAYER] Retrying audio load from URL: ${url}`);
       
       if (url.startsWith('error:')) {
@@ -296,27 +298,24 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
     if (recordingId && getDownloadUrl) {
       try {
         setIsLoading(true);
+        console.log(`[PLAYER] Getting download URL for recording ${recordingId}`);
+        
         const url = await getDownloadUrl(recordingId);
-        console.log(`[PLAYER] Opening download URL: ${url}`);
+        console.log(`[PLAYER] Opening download URL (length: ${url.length})`);
+        console.log(`[PLAYER] Current time: ${new Date().toISOString()}`);
         
-        if (url.startsWith('error:')) {
-          throw new Error(url.replace('error:', ''));
-        }
+        // Main approach: window.open with _system (recommended for WebView)
+        console.log(`[PLAYER] Using window.open with _system target`);
+        window.open(url, '_system');
         
-        // For blob URL downloads, we create a download link with the correct filename
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${recording?.title || 'recording'}.mp3`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        
-        // Revoke the URL to free memory
-        setTimeout(() => URL.revokeObjectURL(url), 100);
+        // Show a message to guide the user
+        setTimeout(() => {
+          alert('Download started. Check your browser for the file.');
+        }, 500);
         
         setIsLoading(false);
       } catch (error) {
-        console.error('Failed to get download URL:', error);
+        console.error('[PLAYER] Failed to get download URL:', error);
         setError('Failed to download recording');
         setIsLoading(false);
       }

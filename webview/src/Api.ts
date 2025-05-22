@@ -76,7 +76,7 @@ const api = {
       });
     },
     
-    getDownloadUrl: async (id: string): Promise<string> => {
+    getPlaybackUrl: async (id: string): Promise<string> => {
       try {
         // Get a binary file directly instead of using tokens
         // This uses axios which correctly sends auth cookies
@@ -92,9 +92,47 @@ const api = {
         // Return the blob URL which doesn't need auth
         return url;
       } catch (error) {
-        console.error('Error getting download URL:', error);
+        console.error('Error getting playback URL:', error);
         // Return a special error indicator
         return 'error:failed-to-get-recording';
+      }
+    },
+    
+    getDownloadUrl: async (id: string): Promise<string> => {
+      try {
+        console.log(`[API] Requesting download token for recording ${id}`);
+        
+        // Add a timestamp to prevent caching
+        const cacheBuster = Date.now();
+        
+        // Get a signed download token from the API with fresh credentials
+        const response = await axiosInstance.get(`/api/recordings/${id}/download-token?t=${cacheBuster}`, {
+          headers: getAuthHeader()
+        });
+        
+        // Log token details for debugging
+        const expiresAt = response.data.expiresAt ? new Date(response.data.expiresAt).toISOString() : 'unknown';
+        console.log(`[API] Received download token. Expires at: ${expiresAt}`);
+        console.log(`[API] Token length: ${response.data.token ? response.data.token.length : 0}`);
+        
+        // The token is already URL-safe from the server
+        // No need to use encodeURIComponent on the token itself
+        const token = response.data.token;
+        
+        // Construct absolute URL with origin
+        const origin = window.location.origin;
+        // This URL will be opened in an external browser
+        const downloadUrl = `${origin}/api/recordings/${id}/download-by-token?token=${token}`;
+        
+        console.log(`[API] Created download URL (length: ${downloadUrl.length})`);
+        return downloadUrl;
+      } catch (error) {
+        console.error('[API] Error getting download URL:', error);
+        // Fallback to direct download URL (may not work in browser)
+        const origin = window.location.origin;
+        const directUrl = `${origin}/api/recordings/${id}/download`;
+        console.log(`[API] Using fallback direct download URL: ${directUrl}`);
+        return directUrl;
       }
     },
     

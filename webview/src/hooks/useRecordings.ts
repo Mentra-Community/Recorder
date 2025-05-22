@@ -206,7 +206,12 @@ export function useRecordings(options: UseRecordingsOptions = {}) {
     }
   }, []);
 
-  // Get download URL - async to get signed token
+  // Get playback URL for in-app audio player
+  const getPlaybackUrl = useCallback(async (id: string): Promise<string> => {
+    return api.recordings.getPlaybackUrl(id);
+  }, []);
+
+  // Get download URL for external download (opens in browser)
   const getDownloadUrl = useCallback(async (id: string): Promise<string> => {
     return api.recordings.getDownloadUrl(id);
   }, []);
@@ -222,6 +227,7 @@ export function useRecordings(options: UseRecordingsOptions = {}) {
     stopRecording,
     deleteRecording,
     renameRecording,
+    getPlaybackUrl,
     getDownloadUrl,
     checkSessionStatus,
     checkRefreshNeeded

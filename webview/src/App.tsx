@@ -23,6 +23,7 @@ const ImprovedApp: React.FC = () => {
     stopRecording,
     deleteRecording,
     renameRecording,
+    getPlaybackUrl,
     getDownloadUrl,
     checkRefreshNeeded,
     sessionConnected,
@@ -200,6 +201,7 @@ const ImprovedApp: React.FC = () => {
             recording={selectedRecording || undefined}
             onBack={navigateToList} 
             onDelete={handleDeleteRecording}
+            getPlaybackUrl={getPlaybackUrl}
             getDownloadUrl={getDownloadUrl}
           />
         );
