@@ -44,10 +44,16 @@ class StorageService {
   async beginStreamingUpload(userId: string, recordingId: string): Promise<void> {
     console.log(`[STORAGE] Beginning streaming upload for recording ${recordingId}`);
 
-    // Make sure we don't already have an upload for this ID
+    // Check if we already have an upload for this ID
     if (this.activeUploads.has(recordingId)) {
-      console.log(`[STORAGE] Upload already exists for recording ${recordingId}, resetting`);
-      this.activeUploads.delete(recordingId);
+      const existingUpload = this.activeUploads.get(recordingId);
+      if (existingUpload && existingUpload.userId === userId) {
+        console.log(`[STORAGE] Upload already exists for recording ${recordingId} by same user ${userId}, keeping existing upload`);
+        return; // Keep the existing upload instead of resetting
+      } else {
+        console.log(`[STORAGE] Upload exists for recording ${recordingId} but by different user, this shouldn't happen`);
+        this.activeUploads.delete(recordingId);
+      }
     }
 
     // Create a new upload

@@ -4,11 +4,12 @@
 
 import axios from 'axios';
 import { RecordingI } from './types';
+import logger from './utils/remoteLogger';
 
 /**
  * Get the backend URL from environment variables
  */
-const getBackendUrl = (): string => {
+export const getBackendUrl = (): string => {
   const backendUrl = import.meta.env.VITE_BACKEND_URL || 'https://isaiah-tpa.ngrok.app';
   return backendUrl.replace(/\/$/, ''); // Remove trailing slash
 };
@@ -34,6 +35,21 @@ const axiosInstance = axios.create({
   // Include credentials for cookie-based auth from MentraOS SDK
   withCredentials: true,
 });
+
+// Add response interceptor for debugging
+axiosInstance.interceptors.response.use(
+  (response) => {
+    logger.debug(`[API] Response ${response.config.method?.toUpperCase()} ${response.config.url} - Status: ${response.status}`);
+    return response;
+  },
+  (error) => {
+    if (axios.isAxiosError(error)) {
+      logger.error(`[API] Error ${error.config?.method?.toUpperCase()} ${error.config?.url} - Status: ${error.response?.status}`);
+      logger.error('[API] Error response:', error.response?.data);
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Get auth headers with MentraOS frontend token
 const getAuthHeader = (): Record<string, string> => {
@@ -83,11 +99,27 @@ const api = {
     },
     
     startRecording: async (sessionId: string): Promise<string> => {
-      const response = await axiosInstance.post('/api/recordings/start', { sessionId }, {
-        headers: getAuthHeader()
-      });
+      logger.log(`[API] Starting recording with sessionId: ${sessionId}`);
+      logger.log('[API] Auth headers:', JSON.stringify(getAuthHeader()));
       
-      return response.data.id;
+      try {
+        const response = await axiosInstance.post('/api/recordings/start', { sessionId }, {
+          headers: getAuthHeader()
+        });
+        
+        logger.log(`[API] Start recording response status: ${response.status}`);
+        logger.log(`[API] Start recording response data:`, response.data);
+        
+        return response.data.id;
+      } catch (error) {
+        logger.error('[API] Start recording request failed:', error);
+        if (axios.isAxiosError(error)) {
+          logger.error('[API] Response status:', error.response?.status);
+          logger.error('[API] Response data:', error.response?.data);
+          logger.error('[API] Response headers:', error.response?.headers);
+        }
+        throw error;
+      }
     },
     
     stopRecording: async (id: string): Promise<void> => {
@@ -180,6 +212,7 @@ const api = {
   events: {
     connect: (): EventSource | null => {
       if (eventSourceInstance && eventSourceInstance.readyState !== EventSource.CLOSED) {
+        console.log('[API] SSE already connected, reusing existing connection');
         return eventSourceInstance;
       }
       
@@ -275,8 +308,5 @@ const api = {
     }
   }
 };
-
-// Export backend URL getter for debugging
-export { getBackendUrl };
 
 export default api;

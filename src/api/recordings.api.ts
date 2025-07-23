@@ -114,7 +114,9 @@ function formatRecordingForApi(recording: RecordingDocument) {
     id: plainRecord._id.toString(), // Add id for backward compatibility
     _id: undefined, // Remove _id from the response
     createdAt: plainRecord.createdAt instanceof Date ? plainRecord.createdAt.getTime() : plainRecord.createdAt,
-    updatedAt: plainRecord.updatedAt instanceof Date ? plainRecord.updatedAt.getTime() : plainRecord.updatedAt
+    updatedAt: plainRecord.updatedAt instanceof Date ? plainRecord.updatedAt.getTime() : plainRecord.updatedAt,
+    // Add isRecording field based on status for frontend compatibility
+    isRecording: plainRecord.status === 'recording' || plainRecord.status === 'initializing' || plainRecord.status === 'stopping'
   };
 }
 
@@ -194,6 +196,12 @@ router.post('/start', async (req: AuthenticatedRequest, res: Response) => {
       return res.status(400).json({ 
         error: error.message,
         code: 'NO_ACTIVE_SESSION'
+      });
+    }
+    if (error instanceof Error && error.message.includes('already has an active recording')) {
+      return res.status(409).json({ 
+        error: error.message,
+        code: 'RECORDING_ALREADY_ACTIVE'
       });
     }
     return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });

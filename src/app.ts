@@ -3,7 +3,7 @@
  * Main application entry point
  */
 
-import { TpaServer, TpaSession, ViewType, AuthenticatedRequest } from '@mentra/sdk';
+import { AppServer, TpaSession, ViewType, AuthenticatedRequest } from '@mentra/sdk';
 import path from 'path';
 import cors from 'cors';
 import express, { Express, Request, Response, NextFunction } from 'express';
@@ -12,15 +12,16 @@ import transcriptsApi from './api/transcripts.api';
 import filesApi from './api/files.api';
 import eventsApi from './api/events.api';
 import sessionApi from './api/session.api';
+import devApi from './api/dev.api';
 import streamService from './services/stream.service';
 import recordingsService from './services/recordings.service';
 import * as mongodbConnection from './connections/mongodb.connection';
 
 /**
- * Custom TPA Server for the Recorder App
- * Extends the base TpaServer with application-specific functionality
+ * Custom App Server for the Recorder App
+ * Extends the base AppServer with application-specific functionality
  */
-class RecorderServer extends TpaServer {
+class RecorderServer extends AppServer {
   private expressApp: Express;
 
   constructor() {
@@ -97,7 +98,8 @@ class RecorderServer extends TpaServer {
       'http://localhost:5174', // Vite dev server
       'http://localhost:8069', // Backend server
       'http://localhost:3000',  // Local testing
-      'https://recorder-webview.ngrok.app' // Vite dev server
+      'https://recorder-webview.ngrok.app', // Vite dev server
+      'https://isaiah-webview.ngrok.app' // Actual webview ngrok URL
     ];
 
     // CORS configuration for separate servers
@@ -157,6 +159,11 @@ class RecorderServer extends TpaServer {
     app.use('/api/files', filesApi);
     app.use('/api/events', eventsApi);
     app.use('/api/session', sessionApi);
+    
+    // Development utilities
+    if (process.env.NODE_ENV === 'development') {
+      app.use('/api/dev', devApi);
+    }
 
     // Catch-all route for React app (in production)
     if (process.env.NODE_ENV === 'production') {
@@ -169,7 +176,7 @@ class RecorderServer extends TpaServer {
 
   /**
    * Handle new TPA session
-   * This is called automatically by the TpaServer base class
+   * This is called automatically by the AppServer base class
    */
   protected async onSession(session: TpaSession, sessionId: string, userId: string): Promise<void> {
     console.log(`New TPA session: ${sessionId} for user ${userId}`);
@@ -183,11 +190,21 @@ class RecorderServer extends TpaServer {
 
   /**
    * Handle session stop
-   * This is called automatically by the TpaServer base class
+   * This is called automatically by the AppServer base class
    */
   protected async onStop(sessionId: string, userId: string, reason: string): Promise<void> {
     console.log(`TPA session stopped: ${sessionId} for user ${userId}, reason: ${reason}`);
-    // Clean up any active recordings or resources
+    
+    // Clean up any active recordings for this user
+    try {
+      const activeRecording = await recordingsService.getActiveRecordingForUser(userId);
+      if (activeRecording) {
+        console.log(`[CLEANUP] Stopping active recording ${activeRecording._id} for disconnected user ${userId}`);
+        await recordingsService.stopRecording(activeRecording._id.toString());
+      }
+    } catch (error) {
+      console.error(`[CLEANUP] Error stopping recording for user ${userId}:`, error);
+    }
   }
 }
 

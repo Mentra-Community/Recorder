@@ -6,6 +6,7 @@ import PlaybackImproved from './screens/PlaybackImproved/PlaybackImproved';
 import { useRecordings } from './hooks/useRecordings';
 import { RecordingI } from './types/recording';
 import api, { setFrontendToken, getBackendUrl } from './Api';
+import logger from './utils/remoteLogger';
 
 type Screen = 'list' | 'recording' | 'playback';
 
@@ -42,6 +43,8 @@ const App: React.FC = () => {
   useEffect(() => {
     // Only set up voice commands if authenticated and have frontend token
     if (!isAuthenticated || !frontendToken) return;
+    
+    console.log('[APP] Setting up voice command listeners');
 
     const handleVoiceCommand = (data: { command: string, timestamp: number }) => {
       console.log(`[APP] [DEBUG] Received voice command: ${data.command}, timestamp: ${data.timestamp}`);
@@ -120,11 +123,15 @@ const App: React.FC = () => {
 
   const handleStartRecording = async () => {
     try {
+      logger.log('[APP] handleStartRecording called from App.tsx');
       const recordingId = await startRecording();
+      logger.log('[APP] Recording started successfully with ID:', recordingId);
       return recordingId;
     } catch (error) {
-      console.error('Failed to start recording:', error);
-      navigateToList();
+      logger.error('[APP] Failed to start recording:', error);
+      logger.error('[APP] Error type:', typeof error);
+      logger.error('[APP] Error message:', error instanceof Error ? error.message : String(error));
+      // Don't navigate away on error - let RecordingImproved handle it
       throw error;
     }
   };
