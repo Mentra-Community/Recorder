@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { ChevronLeft, Share, Download, Trash2, Volume2, Play, Pause } from 'lucide-react';
+import { ChevronLeft, Download, Trash2, Volume2, Play, Pause } from 'lucide-react';
 import { RecordingI } from '../../types/recording';
 import { formatDuration } from '../../utils/formatters';
 
@@ -354,9 +354,6 @@ const PlaybackImproved: React.FC<PlaybackImprovedProps> = ({
           <h1 className="text-xl font-medium">{recording.title}</h1>
         </div>
         <div className="flex items-center space-x-5">
-          <button className="text-gray-600">
-            <Share size={22} />
-          </button>
           <button className="text-gray-600" onClick={handleDownload}>
             <Download size={22} />
           </button>

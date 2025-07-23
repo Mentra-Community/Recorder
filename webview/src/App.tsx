@@ -253,14 +253,14 @@ const App: React.FC = () => {
   return (
     <div>
       {/* Debug info for development - only show in dev mode */}
-      {process.env.NODE_ENV === 'development' && (
+      {/* {process.env.NODE_ENV === 'development' && (
         <div className="fixed top-0 right-0 z-50 bg-black bg-opacity-75 text-white text-xs p-2 rounded-bl-lg">
           <div>User: {userId}</div>
           <div>Token: {frontendToken ? `${frontendToken.substring(0, 8)}...` : 'none'}</div>
           <div>Backend: {getBackendUrl()}</div>
           <div>Mode: {import.meta.env.DEV ? 'proxy' : 'direct'}</div>
         </div>
-      )}
+      )} */}
       {renderScreen()}
     </div>
   );

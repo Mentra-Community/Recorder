@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ChevronLeft, Share, Download, Trash2, Square, Mic, Play } from 'lucide-react';
+import { ChevronLeft, Square, Mic } from 'lucide-react';
 import { useRealTimeEvents } from '../../hooks/useRealTimeEvents';
 import { RecordingStatusE } from '../../types/recording';
 import { formatDuration } from '../../utils/formatters';
@@ -468,17 +468,7 @@ const RecordingImproved: React.FC<RecordingImprovedProps> = ({
           </button>
           <h1 className="text-xl font-medium">Recording</h1>
         </div>
-        <div className="flex items-center space-x-5">
-          <button className="text-gray-600" disabled={true}>
-            <Share size={22} className="opacity-50" />
-          </button>
-          <button className="text-gray-600" disabled={true}>
-            <Download size={22} className="opacity-50" />
-          </button>
-          <button className="text-gray-600" disabled={true}>
-            <Trash2 size={22} className="opacity-50" />
-          </button>
-        </div>
+        <div className="flex items-center space-x-5" />
       </header>
       
       {/* Large Timer Display with accent background */}
