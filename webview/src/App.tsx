@@ -1,17 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import RecordingsListImproved from './screens/RecordingsListImproved';
-import RecordingImproved from './screens/RecordingImproved';
-import PlaybackImproved from './screens/PlaybackImproved';
+import { useMentraAuth } from '@mentra/react';
+import RecordingsListImproved from './screens/RecordingsListImproved/RecordingsListImproved';
+import RecordingImproved from './screens/RecordingImproved/RecordingImproved';
+import PlaybackImproved from './screens/PlaybackImproved/PlaybackImproved';
 import { useRecordings } from './hooks/useRecordings';
 import { RecordingI } from './types/recording';
-import api from './Api';
+import api, { setFrontendToken, getBackendUrl } from './Api';
 
 type Screen = 'list' | 'recording' | 'playback';
 
-const ImprovedApp: React.FC = () => {
+const App: React.FC = () => {
+  const { userId, isLoading, error: authError, isAuthenticated, frontendToken } = useMentraAuth();
   const [currentScreen, setCurrentScreen] = useState<Screen>('list');
   const [selectedRecordingId, setSelectedRecordingId] = useState<string | null>(null);
   const [selectedRecording, setSelectedRecording] = useState<RecordingI | null>(null);
+
+  // Set the frontend token for API calls whenever it changes
+  useEffect(() => {
+    console.log('[APP] Setting frontend token for API calls:', frontendToken ? 'token available' : 'no token');
+    setFrontendToken(frontendToken);
+  }, [frontendToken]);
   
   // Use our custom hook to manage recordings
   const { 
@@ -32,6 +40,9 @@ const ImprovedApp: React.FC = () => {
   
   // Listen for voice commands via SSE
   useEffect(() => {
+    // Only set up voice commands if authenticated and have frontend token
+    if (!isAuthenticated || !frontendToken) return;
+
     const handleVoiceCommand = (data: { command: string, timestamp: number }) => {
       console.log(`[APP] [DEBUG] Received voice command: ${data.command}, timestamp: ${data.timestamp}`);
       console.log(`[APP] [DEBUG] Current screen: ${currentScreen}`);
@@ -40,31 +51,22 @@ const ImprovedApp: React.FC = () => {
         console.log('[APP] [DEBUG] Voice command is starting a recording');
         if (currentScreen !== 'recording') {
           console.log('[APP] [DEBUG] Navigating to recording screen for voice-started recording');
-          // IMPORTANT: The backend already created a recording via voice command
-          // We just need to navigate to the recording screen, which will pick up the existing recording
-          // Do NOT call startRecording() here - the RecordingImproved component will handle finding the active recording
           navigateToRecording();
         } else {
           console.log('[APP] [DEBUG] Already on recording screen, not navigating');
         }
       } else if (data.command === 'stop-recording' && currentScreen === 'recording') {
         console.log('[APP] [DEBUG] Voice command is stopping a recording');
-        // The backend is already handling the stop recording action
-        // The RecordingImproved component will handle UI state changes
-        // DO NOT call stopRecording() here to avoid duplicate API calls
         console.log('[APP] [DEBUG] ⚠️ Received stop-recording command - this is just UI notification, backend already stopped recording');
       }
     };
     
-    // Also listen for voice-stopped events
     const handleRecordingStopped = (data: { id: string, timestamp: number }) => {
       console.log(`[APP] [DEBUG] Received recording-stopped-by-voice event for recording: ${data.id}`);
-      // This is confirmation that recording was stopped on backend
     };
     
-    // Set up event listener using our centralized API
     console.log('[APP] [DEBUG] Setting up voice command listeners');
-    api.events.connect(); // Ensure connection is established
+    api.events.connect();
     
     const voiceCommandListener = (event: MessageEvent) => {
       try {
@@ -94,20 +96,17 @@ const ImprovedApp: React.FC = () => {
       api.events.removeEventListener('voice-command', voiceCommandListener);
       api.events.removeEventListener('recording-stopped-by-voice', recordingStoppedListener);
     };
-  }, [currentScreen]);
+  }, [currentScreen, isAuthenticated, frontendToken]);
 
   // Navigation handlers
   const navigateToList = () => {
     setCurrentScreen('list');
     setSelectedRecordingId(null);
     setSelectedRecording(null);
-    
-    // Check if we need to refresh the recordings list
     checkRefreshNeeded();
   };
 
   const navigateToRecording = async () => {
-    // Check if we have an active session before navigating to recording
     await checkSessionStatus();
     setCurrentScreen('recording');
   };
@@ -125,7 +124,6 @@ const ImprovedApp: React.FC = () => {
       return recordingId;
     } catch (error) {
       console.error('Failed to start recording:', error);
-      // If there's an error, go back to the list
       navigateToList();
       throw error;
     }
@@ -134,11 +132,9 @@ const ImprovedApp: React.FC = () => {
   const handleStopRecording = async (recordingId: string) => {
     try {
       await stopRecording(recordingId);
-      // Once the recording is stopped, go back to the list
       navigateToList();
     } catch (error) {
       console.error('Failed to stop recording:', error);
-      // If there's an error, go back to the list anyway
       navigateToList();
       throw error;
     }
@@ -147,7 +143,6 @@ const ImprovedApp: React.FC = () => {
   const handleDeleteRecording = async (id: string) => {
     try {
       await deleteRecording(id);
-      // If we're deleting the current recording, navigate back to list
       if (id === selectedRecordingId) {
         navigateToList();
       }
@@ -156,6 +151,33 @@ const ImprovedApp: React.FC = () => {
       throw error;
     }
   };
+
+  // Handle authentication loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-100">
+        <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+          <div className="w-10 h-10 border-3 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+          <p className="text-gray-600">Loading authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle authentication error
+  if (authError) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-100">
+        <div className="flex flex-col items-center justify-center min-h-screen text-center p-8">
+          <h2 className="text-red-600 text-2xl font-semibold mb-4">Authentication Error</h2>
+          <p className="text-red-600 font-medium mb-2">{authError}</p>
+          <p className="text-gray-600 text-sm">
+            Please ensure you are opening this page from the MentraOS app.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Render the appropriate screen
   const renderScreen = () => {
@@ -223,9 +245,18 @@ const ImprovedApp: React.FC = () => {
 
   return (
     <div>
+      {/* Debug info for development - only show in dev mode */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="fixed top-0 right-0 z-50 bg-black bg-opacity-75 text-white text-xs p-2 rounded-bl-lg">
+          <div>User: {userId}</div>
+          <div>Token: {frontendToken ? `${frontendToken.substring(0, 8)}...` : 'none'}</div>
+          <div>Backend: {getBackendUrl()}</div>
+          <div>Mode: {import.meta.env.DEV ? 'proxy' : 'direct'}</div>
+        </div>
+      )}
       {renderScreen()}
     </div>
   );
 };
 
-export default ImprovedApp;
+export default App;

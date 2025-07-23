@@ -3,7 +3,7 @@
  * Endpoints for querying TPA session status
  */
 
-import { AuthenticatedRequest } from '@augmentos/sdk';
+import { AuthenticatedRequest } from '@mentra/sdk';
 import { Router } from 'express';
 import { Request, Response } from 'express';
 // import { AuthenticatedRequest, isaiahMiddleware } from '../middleware/isaiah.middleware';

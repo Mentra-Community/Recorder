@@ -3,7 +3,7 @@
  * Handles business logic for recordings
  */
 
-import { AudioChunk, TpaSession, TranscriptionData, ViewType } from '@augmentos/sdk';
+import { AudioChunk, TpaSession, TranscriptionData, ViewType } from '@mentra/sdk';
 import { RecordingStatus, AudioChunkI, TranscriptionDataI } from '../types/recordings.types';
 import { Recording, RecordingDocument } from '../models/recording.models';
 import mongoose from 'mongoose';

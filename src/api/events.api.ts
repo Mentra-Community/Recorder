@@ -9,7 +9,7 @@ import streamService from '../services/stream.service';
 const router = Router();
 
 // Use the AugmentOS SDK auth middleware
-import { AuthenticatedRequest } from '@augmentos/sdk';
+import { AuthenticatedRequest } from '@mentra/sdk';
 // import { AuthenticatedRequest, isaiahMiddleware } from '../middleware/isaiah.middleware';
 
 // Note: The authMiddleware from AugmentOS SDK will:
@@ -26,7 +26,7 @@ router.get('/', (req: AuthenticatedRequest, res: Response) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   
-  // Set up SSE connection
+  // Set up SSE connection (headers will be set by streamService.addClient)
   streamService.addClient(userId, res);
 });
 

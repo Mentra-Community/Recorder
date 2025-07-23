@@ -3,7 +3,7 @@
  * Main application entry point
  */
 
-import { TpaServer, TpaSession, ViewType } from '@augmentos/sdk';
+import { TpaServer, TpaSession, ViewType, AuthenticatedRequest } from '@mentra/sdk';
 import path from 'path';
 import cors from 'cors';
 import express, { Express, Request, Response, NextFunction } from 'express';
@@ -26,10 +26,9 @@ class RecorderServer extends TpaServer {
   constructor() {
     // Initialize with our configuration
     super({
-      packageName: process.env.PACKAGE_NAME || 'com.augmentos.recorder',
-      apiKey: process.env.AUGMENTOS_API_KEY || 'development-key',
+      packageName: process.env.PACKAGE_NAME || 'com.mentra.recorder',
+      apiKey: process.env.MENTRAOS_API_KEY || 'development-key',
       port: parseInt(process.env.PORT || '8069', 10),
-      publicDir: path.join(__dirname, '../webview/dist')
     });
 
     // Get the Express app instance
@@ -41,193 +40,132 @@ class RecorderServer extends TpaServer {
    * Configure the Express application
    */
   private setupExpressApp(): void {
-    // Apply CORS middleware
-    this.expressApp.use(cors({
-      origin: '*',
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    const app = this.getExpressApp();
+
+    // Configure request parsing with increased limits for headers
+    app.use(express.json({ 
+      limit: '50mb',
+    }));
+    
+    app.use(express.urlencoded({ 
+      limit: '50mb', 
+      extended: true,
+      parameterLimit: 50000,
     }));
 
-    // Parse JSON for request bodies
-    this.expressApp.use(express.json());
+    // Debug middleware for development
+    app.use(this.debugMiddleware);
 
-    // Parse URL-encoded request bodies (forms)
-    this.expressApp.use(express.urlencoded({ extended: true }));
+    // Set up CORS
+    this.setupCors();
 
-    // Add auto-auth for development
-    // this.setupDevAuth();
+    // Serve static files in production
+    if (process.env.NODE_ENV === 'production') {
+      app.use(express.static(path.join(__dirname, '../webview/dist')));
+    }
 
     // Set up API routes
     this.setupApiRoutes();
-
-    // Serve static files
-    this.setupStaticFileServing();
   }
 
   /**
-   * Set up auto-authentication for development
+   * Debug middleware for development authentication
+   * Only applies when no real authentication is present
    */
-  // private setupDevAuth(): void {
-  //   // Development middleware to auto-auth from localhost
-  //   this.expressApp.use((req: Request, res: Response, next: NextFunction) => {
-  //     // Check if this is a request from localhost
-  //     const isLocalhost = req.hostname === 'localhost' ||
-  //       req.hostname === '127.0.0.1' ||
-  //       req.ip === '127.0.0.1' ||
-  //       req.ip === '::1';
+  private debugMiddleware = (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
+    if (process.env.NODE_ENV === 'development') {
+      // Only set debug user if no real authentication is present
+      if (!req.authUserId) {
+        req.authUserId = 'isaiah@mentra.glass';
+        console.log('[DEBUG] Using debug auth for user:', req.authUserId);
+      } else {
+        console.log('[DEBUG] Real auth detected for user:', req.authUserId);
+      }
+    }
+    next();
+  };
 
-  //     if (isLocalhost) {
-  //       // Auto-inject auth for local development
-  //       const userEmail = 'isaiah@mentra.glass';
-  //       console.log(`[DEV] Auto-authenticating as ${userEmail}`);
+  /**
+   * Configure CORS for separate frontend/backend deployment
+   */
+  private setupCors(): void {
+    const app = this.getExpressApp();
 
-  //       // Set auth user ID for API routes
-  //       (req as any).authUserId = userEmail;
+    // Parse allowed origins from environment
+    const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || [
+      'http://localhost:5173', // Vite dev server
+      'http://localhost:5174', // Vite dev server
+      'http://localhost:8069', // Backend server
+      'http://localhost:3000',  // Local testing
+      'https://recorder-webview.ngrok.app' // Vite dev server
+    ];
 
-  //       // For non-API routes, need to inject auth token into HTML
-  //       if (!req.path.startsWith('/api/') && req.path !== '/api') {
-  //         // Will inject auth token in the static file middleware
-  //         (req as any).autoAuth = true;
-  //         (req as any).userEmail = userEmail;
-  //       }
-  //     }
+    // CORS configuration for separate servers
+    app.use(cors({
+      origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, curl, etc.)
+        if (!origin) return callback(null, true);
 
-  //     next();
-  //   });
-  // }
+        // Check if origin is in allowed list
+        if (ALLOWED_ORIGINS.includes(origin)) {
+          return callback(null, true);
+        }
+
+        // Log rejected origins for debugging
+        console.warn(`CORS blocked origin: ${origin}`);
+        return callback(new Error('Not allowed by CORS'), false);
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Accept',
+        'Origin'
+      ],
+      exposedHeaders: ['Content-Type', 'Authorization']
+    }));
+
+    // Handle preflight requests
+    app.options('*', cors());
+  }
 
   /**
    * Set up API routes
    */
   private setupApiRoutes(): void {
+    const app = this.getExpressApp();
+
     // Root API endpoint with status info
-    this.expressApp.get('/api', (req: Request, res: Response) => {
+    app.get('/api', (req: Request, res: Response) => {
       res.json({
-        message: 'AugmentOS Recorder API',
+        message: 'MentraOS Recorder API',
         version: '0.1.0',
         status: 'development'
       });
     });
 
+    // Health check endpoint
+    app.get('/api/health', (req, res) => {
+      res.json({ status: 'ok', timestamp: Date.now() });
+    });
+
     // Core API routes for Recorder app
-    this.expressApp.use('/api/recordings', recordingsApi);
-    this.expressApp.use('/api/transcripts', transcriptsApi);
-    this.expressApp.use('/api/files', filesApi);
-    this.expressApp.use('/api/events', eventsApi);
-    this.expressApp.use('/api/session', sessionApi);
+    app.use('/api/recordings', recordingsApi);
+    app.use('/api/transcripts', transcriptsApi);
+    app.use('/api/files', filesApi);
+    app.use('/api/events', eventsApi);
+    app.use('/api/session', sessionApi);
+
+    // Catch-all route for React app (in production)
+    if (process.env.NODE_ENV === 'production') {
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(__dirname, '../webview/dist/index.html'));
+      });
+    }
   }
 
-  /**
-   * Set up static file serving
-   */
-  private setupStaticFileServing(): void {
-    const staticFilesPath = path.join(__dirname, '../webview/dist');
-    console.log(`[SERVER] Serving static files from: ${staticFilesPath}`);
-
-    // Root redirect to webview
-    // this.expressApp.get('/', (req: Request, res: Response) => {
-    //   res.redirect('/webview');
-    // });
-
-    // // Special handling for webview to inject auth
-    // this.expressApp.get('/webview', (req: Request, res: Response) => {
-    //   console.log(`[SERVER] Webview request received from ${req.ip}`);
-
-    //   const filePath = path.join(staticFilesPath, 'index.html');
-
-    //   try {
-    //     let html = fs.readFileSync(filePath, 'utf8');
-
-    //     // Add auto auth for local development
-    //     if ((req as any).autoAuth && (req as any).userEmail) {
-    //       console.log(`[DEV] Injecting auth for ${(req as any).userEmail}`);
-
-    //       html = html.replace(
-    //         '<head>',
-    //         `<head>
-    // <script>
-    //   // Auto-authentication for local development
-    //   window.AUTH_TOKEN = "dev_auto_auth_token";
-    //   window.USER_EMAIL = "${(req as any).userEmail}";
-      
-    //   // Intercept fetch to add auth token
-    //   const originalFetch = window.fetch;
-    //   window.fetch = function(url, options) {
-    //     // Add auth headers to all requests
-    //     options = options || {};
-    //     options.headers = options.headers || {};
-    //     options.headers['X-Auth-User'] = window.USER_EMAIL;
-    //     return originalFetch(url, options);
-    //   };
-    //   console.log('Auto-auth configured for local development');
-    // </script>`
-    //       );
-    //     }
-
-    //     res.type('text/html').send(html);
-    //   } catch (error) {
-    //     console.error('[ERROR] Failed to serve webview HTML:', error);
-    //     res.status(500).send('Error serving webview');
-    //   }
-    // });
-
-    // Serve static files with caching disabled in development
-    this.expressApp.use(express.static(staticFilesPath, {
-      maxAge: 0,
-      etag: false,
-      lastModified: false
-    }));
-
-    // // Catch-all route for client-side routing
-    // this.expressApp.get('*', (req: Request, res: Response, next: NextFunction) => {
-    //   // Skip API routes
-    //   if (req.path.startsWith('/api/')) {
-    //     return next();
-    //   }
-
-    //   // For all other routes, serve the index.html
-    //   // const indexPath = path.join(staticFilesPath, 'index.html');
-
-    // //   if (fs.existsSync(indexPath)) {
-    // //     try {
-    // //       let html = fs.readFileSync(indexPath, 'utf8');
-
-    // //       // Auto-inject auth for localhost
-    // //       if ((req as any).autoAuth && (req as any).userEmail) {
-    // //         console.log(`[DEV] Injecting auth for path: ${req.path}`);
-
-    // //         html = html.replace(
-    // //           '<head>',
-    // //           `<head>
-    // // <script>
-    // //   // Auto-authentication for local development
-    // //   window.AUTH_TOKEN = "dev_auto_auth_token";
-    // //   window.USER_EMAIL = "${(req as any).userEmail}";
-      
-    // //   // Intercept fetch to add auth token
-    // //   const originalFetch = window.fetch;
-    // //   window.fetch = function(url, options) {
-    // //     // Add auth headers to all requests
-    // //     options = options || {};
-    // //     options.headers = options.headers || {};
-    // //     options.headers['X-Auth-User'] = window.USER_EMAIL;
-    // //     return originalFetch(url, options);
-    // //   };
-    // // </script>`
-    // //         );
-    // //       }
-
-    // //       res.type('text/html').send(html);
-    // //     } catch (err) {
-    // //       console.error(`[ERROR] Failed to serve index.html: ${err}`);
-    // //       next(err);
-    // //     }
-    // //   } else {
-    // //     next(); // Let the next middleware handle it
-    // //   }
-    // });
-  }
 
   /**
    * Handle new TPA session
@@ -240,11 +178,7 @@ class RecorderServer extends TpaServer {
     recordingsService.setupSDKSession(session, sessionId, userId);
 
     // Show welcome message on glasses
-    session.layouts.showReferenceCard(
-      "Recorder App",
-      "Start recording with the web interface or say 'start recording'",
-      { view: ViewType.MAIN, durationMs: 5000 }
-    );
+    session.layouts.showTextWall("MentraOS Recorder App - Open the webview to manage recordings!");
   }
 
   /**
@@ -262,9 +196,8 @@ const server = new RecorderServer();
 
 mongodbConnection.init().then(() => {
   console.log('MongoDB connection established');
-  // Try to start the server anyway
   server.start().then(() => {
-    console.log(`[STARTUP] TPA server running on port ${process.env.PORT || 8069} for ${process.env.PACKAGE_NAME}`);
+    console.log(`[STARTUP] MentraOS Recorder server running on port ${process.env.PORT || 8069} for ${process.env.PACKAGE_NAME}`);
   }).catch(serverError => {
     console.error('[ERROR] Failed to start server:', serverError);
     process.exit(1);
