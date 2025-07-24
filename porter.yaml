@@ -8,13 +8,13 @@ build:
   dockerfile: ./docker/Dockerfile
 
 services:
-  - name: debug-audio
-    type: web
-    run: bun run start
-    port: 80
-    cpuCores: 1.0
-    ramMegabytes: 1024
-    env:
-      NODE_ENV: ${NODE_ENV}
-      PORTER_APP_NAME: ${PORTER_APP_NAME}
-      HOST: "0.0.0.0"
+- name: recorder
+  type: web
+  run: bun run start
+  port: 80
+  cpuCores: 1.0
+  ramMegabytes: 1024
+  env:
+    NODE_ENV: ${NODE_ENV}
+    PORTER_APP_NAME: ${PORTER_APP_NAME}
+    HOST: "0.0.0.0"
