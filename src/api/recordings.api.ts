@@ -14,9 +14,9 @@ import crypto from 'crypto';
 const router = Router();
 
 // Secret key for token signing - in production, this should be an environment variable
-const AUGMENTOS_API_KEY = process.env.AUGMENTOS_API_KEY;
-if (!AUGMENTOS_API_KEY) {
-  throw new Error('AUGMENTOS_API_KEY is not set. Please set it in your environment variables.');
+const MENTRAOS_API_KEY = process.env.MENTRAOS_API_KEY;
+if (!MENTRAOS_API_KEY) {
+  throw new Error('MENTRAOS_API_KEY is not set. Please set it in your environment variables.');
 }
 
 /**
@@ -34,7 +34,7 @@ function generateDownloadToken(userId: string, recordingId: string, expiresAt: n
   const payloadStr = JSON.stringify(payload);
   
   // Create a signature using HMAC
-  const hmac = crypto.createHmac('sha256', AUGMENTOS_API_KEY as string);
+  const hmac = crypto.createHmac('sha256', MENTRAOS_API_KEY as string);
   hmac.update(payloadStr);
   const signature = hmac.digest('hex');
   
@@ -87,7 +87,7 @@ function verifyDownloadToken(token: string): { userId: string; recordingId: stri
     }
     
     // Verify signature
-    const hmac = crypto.createHmac('sha256', AUGMENTOS_API_KEY as string);
+    const hmac = crypto.createHmac('sha256', MENTRAOS_API_KEY as string);
     hmac.update(payloadStr);
     const expectedSignature = hmac.digest('hex');
     
@@ -114,12 +114,14 @@ function formatRecordingForApi(recording: RecordingDocument) {
     id: plainRecord._id.toString(), // Add id for backward compatibility
     _id: undefined, // Remove _id from the response
     createdAt: plainRecord.createdAt instanceof Date ? plainRecord.createdAt.getTime() : plainRecord.createdAt,
-    updatedAt: plainRecord.updatedAt instanceof Date ? plainRecord.updatedAt.getTime() : plainRecord.updatedAt
+    updatedAt: plainRecord.updatedAt instanceof Date ? plainRecord.updatedAt.getTime() : plainRecord.updatedAt,
+    // Add isRecording field based on status for frontend compatibility
+    isRecording: plainRecord.status === 'recording' || plainRecord.status === 'initializing' || plainRecord.status === 'stopping'
   };
 }
 
 // Use the AugmentOS SDK auth middleware
-import { AuthenticatedRequest } from '@augmentos/sdk';
+import { AuthenticatedRequest } from '@mentra/sdk';
 // import { AuthenticatedRequest, isaiahMiddleware } from '../middleware/isaiah.middleware';
 
 // Note: The authMiddleware from AugmentOS SDK will:
@@ -194,6 +196,12 @@ router.post('/start', async (req: AuthenticatedRequest, res: Response) => {
       return res.status(400).json({ 
         error: error.message,
         code: 'NO_ACTIVE_SESSION'
+      });
+    }
+    if (error instanceof Error && error.message.includes('already has an active recording')) {
+      return res.status(409).json({ 
+        error: error.message,
+        code: 'RECORDING_ALREADY_ACTIVE'
       });
     }
     return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });

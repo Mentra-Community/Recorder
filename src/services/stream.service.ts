@@ -16,11 +16,13 @@ class StreamService {
     // Generate a unique client ID
     const clientId = `${userId}:${uuidv4()}`;
     
-    // Set headers for SSE
+    // Set headers for SSE with CORS support
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': res.req.headers.origin || '*',
+      'Access-Control-Allow-Credentials': 'true',
       'X-Accel-Buffering': 'no' // Disable Nginx buffering
     });
     

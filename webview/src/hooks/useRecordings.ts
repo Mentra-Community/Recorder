@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../Api';
 import { RecordingI, RecordingStatusE } from '../types/recording';
 import { useRealTimeEvents } from './useRealTimeEvents';
+import logger from '../utils/remoteLogger';
 
 export interface UseRecordingsOptions {
   autoRefresh?: boolean;
@@ -20,6 +21,9 @@ export function useRecordings(options: UseRecordingsOptions = {}) {
   
   // Track if we need to refresh when returning to the list
   const needsRefresh = useRef(false);
+  
+  // Track if we're currently starting a recording to prevent duplicates
+  const startingRecording = useRef(false);
   
   // Fetch session status - only when explicitly called
   const checkSessionStatus = useCallback(async () => {
@@ -116,25 +120,50 @@ export function useRecordings(options: UseRecordingsOptions = {}) {
 
   // Start a new recording
   const startRecording = useCallback(async (): Promise<string> => {
+    // Prevent multiple simultaneous start attempts
+    if (startingRecording.current) {
+      logger.warn('[useRecordings] Already starting a recording, skipping duplicate attempt');
+      throw new Error('Already starting a recording');
+    }
+    
+    logger.log('[useRecordings] Setting startingRecording flag to true');
+    startingRecording.current = true;
+    
     try {
       // Check session status first
+      logger.log('[useRecordings] Checking session status before starting recording');
       const isConnected = await checkSessionStatus();
       if (!isConnected) {
+        logger.error('[useRecordings] No active session, throwing error');
         throw new Error('No active AugmentOS SDK session. Please ensure your glasses are connected.');
       }
       
       const sessionId = `session_${Date.now()}`;
+      logger.log(`[useRecordings] Making API call to start recording with sessionId: ${sessionId}`);
       const recordingId = await api.recordings.startRecording(sessionId);
+      logger.log(`[useRecordings] Recording started successfully with ID: ${recordingId}`);
       return recordingId;
     } catch (err) {
+      logger.error('[useRecordings] Error starting recording:', err);
+      logger.error('[useRecordings] Error type:', typeof err);
+      logger.error('[useRecordings] Error message:', err instanceof Error ? err.message : String(err));
+      
       // Special handling for session errors
       if (err instanceof Error && err.message.includes('No active AugmentOS SDK session')) {
         setSessionConnected(false);
       }
       
+      // Special handling for already recording error - don't set this as a general error
+      if (err instanceof Error && err.message.includes('already has an active recording')) {
+        logger.warn('[useRecordings] User already has an active recording, not setting general error state');
+        throw err; // Still throw so caller can handle it
+      }
+      
       setError(err instanceof Error ? err : new Error('Failed to start recording'));
-      console.error('Error starting recording:', err);
       throw err;
+    } finally {
+      logger.log('[useRecordings] Setting startingRecording flag to false');
+      startingRecording.current = false;
     }
   }, [checkSessionStatus]);
 

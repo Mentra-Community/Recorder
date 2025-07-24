@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { AuthenticatedRequest as SDKAuthenticatedRequest } from '@augmentos/sdk';
+import { AuthenticatedRequest as SDKAuthenticatedRequest } from '@mentra/sdk';
 
 /**
  * Middleware that enforces AugmentOS SDK authentication

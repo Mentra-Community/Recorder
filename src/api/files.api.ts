@@ -11,7 +11,7 @@ import path from 'path';
 const router = Router();
 
 // Use the AugmentOS SDK auth middleware
-import { AuthenticatedRequest } from '@augmentos/sdk';
+import { AuthenticatedRequest } from '@mentra/sdk';
 // import { AuthenticatedRequest, isaiahMiddleware } from '../middleware/isaiah.middleware';
 
 // Note: The authMiddleware from AugmentOS SDK will:

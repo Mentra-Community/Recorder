@@ -3,7 +3,7 @@
  * Handles business logic for recordings
  */
 
-import { AudioChunk, TpaSession, TranscriptionData, ViewType } from '@augmentos/sdk';
+import { AudioChunk, TpaSession, TranscriptionData, ViewType } from '@mentra/sdk';
 import { RecordingStatus, AudioChunkI, TranscriptionDataI } from '../types/recordings.types';
 import { Recording, RecordingDocument } from '../models/recording.models';
 import mongoose from 'mongoose';
@@ -12,6 +12,62 @@ import streamService from './stream.service';
 import { hasActiveSession, registerActiveSession } from '../api/session.api';
 
 class RecordingsService {
+  /**
+   * Clean up stale recordings from previous sessions
+   */
+  private async cleanupStaleRecordings(userId: string): Promise<void> {
+    try {
+      console.log(`[CLEANUP] Checking for stale recordings for user ${userId}`);
+      
+      // Find all recordings that are stuck in active states
+      const staleRecordings = await Recording.find({
+        userId,
+        status: {
+          $in: [RecordingStatus.INITIALIZING, RecordingStatus.RECORDING, RecordingStatus.STOPPING]
+        }
+      }).exec();
+      
+      if (staleRecordings.length > 0) {
+        console.log(`[CLEANUP] Found ${staleRecordings.length} stale recordings for user ${userId}`);
+        
+        for (const recording of staleRecordings) {
+          try {
+            console.log(`[CLEANUP] Marking stale recording ${recording._id} as ERROR`);
+            
+            // Mark as error with explanation
+            await Recording.findByIdAndUpdate(recording._id, {
+              status: RecordingStatus.ERROR,
+              error: 'Recording was interrupted by session disconnect',
+              updatedAt: new Date()
+            });
+            
+            // Try to finalize storage if it was initialized
+            if (recording.storage?.initialized) {
+              try {
+                const fileUrl = await storageService.completeUpload(recording._id.toString());
+                await Recording.findByIdAndUpdate(recording._id, {
+                  'storage.fileUrl': fileUrl
+                });
+                console.log(`[CLEANUP] Finalized storage for stale recording ${recording._id}`);
+              } catch (storageErr) {
+                console.log(`[CLEANUP] Could not finalize storage for ${recording._id}:`, storageErr);
+              }
+            }
+          } catch (err) {
+            console.error(`[CLEANUP] Error cleaning up recording ${recording._id}:`, err);
+          }
+        }
+        
+        // Notify clients to refresh their recording lists
+        streamService.broadcastToUser(userId, 'recordings-refresh', {
+          timestamp: Date.now()
+        });
+      }
+    } catch (error) {
+      console.error(`[CLEANUP] Error during stale recording cleanup for user ${userId}:`, error);
+    }
+  }
+
   /**
    * Get the active recording for a user
    * This replaces our in-memory tracking with database-driven tracking
@@ -49,6 +105,9 @@ class RecordingsService {
     
     // Store session for future use
     this.activeSdkSessions.set(userId, session);
+    
+    // Clean up any stale recordings from previous sessions
+    this.cleanupStaleRecordings(userId);
     
     // Register this as an active session
     registerActiveSession(userId);
@@ -238,7 +297,7 @@ class RecordingsService {
       
       if (existingRecording) {
         console.log(`[RECORDING] User ${userId} already has an active recording: ${existingRecording._id}`);
-        return existingRecording._id.toString();
+        throw new Error(`User already has an active recording: ${existingRecording._id}. Please stop the current recording before starting a new one.`);
       }
       
       // Check if the user has an active TPA session - skip for voice-initiated recordings
@@ -366,6 +425,12 @@ class RecordingsService {
       
       // Try to add the chunk to storage
       try {
+        // Check if storage has active upload
+        if (!storageService.hasActiveUpload(recordingId)) {
+          console.log(`[AUDIO] No active upload for ${recordingId}, reinitializing storage`);
+          await storageService.beginStreamingUpload(recordingDoc.userId, recordingId);
+        }
+        
         // Add chunk to storage
         const chunkProcessed = await storageService.addChunk(recordingId, chunk.arrayBuffer);
         

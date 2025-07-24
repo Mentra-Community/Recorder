@@ -29,24 +29,12 @@ export default defineConfig({
             allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
             credentials: true,
         },
+        allowedHosts: ['localhost', 'isaiah-webview.ngrok.app', 'isaiah-tpa.ngrok.app'],
         proxy: {
-            // Proxy API requests back to the TPA server
             '/api': {
-                target: 'http://localhost:8069',
+                target: process.env.VITE_BACKEND_URL || 'https://isaiah-tpa.ngrok.app',
                 changeOrigin: true,
                 secure: false,
-                // Add additional debug information for troubleshooting
-                configure: function (proxy, _options) {
-                    proxy.on('error', function (err, _req, _res) {
-                        console.log('proxy error', err);
-                    });
-                    proxy.on('proxyReq', function (proxyReq, req, _res) {
-                        console.log('Sending Request:', req.method, req.url);
-                    });
-                    proxy.on('proxyRes', function (proxyRes, req, _res) {
-                        console.log('Received Response:', proxyRes.statusCode, req.url);
-                    });
-                }
             }
         },
         // Improved headers for websocket support
@@ -60,7 +48,22 @@ export default defineConfig({
         // Ensure assets use relative paths
         assetsDir: 'assets',
         outDir: 'dist',
+        sourcemap: true,
         // Generate a manifest for asset mapping
         manifest: true,
+        // Optimize for production
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    vendor: ['react', 'react-dom'],
+                    mentra: ['@mentra/react']
+                }
+            }
+        }
+    },
+    // Ensure environment variables are available
+    define: {
+        // Make sure Vite env vars are properly defined
+        'import.meta.env.VITE_BACKEND_URL': JSON.stringify(process.env.VITE_BACKEND_URL || 'https://isaiah-tpa.ngrok.app')
     }
 });

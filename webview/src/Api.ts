@@ -4,10 +4,26 @@
 
 import axios from 'axios';
 import { RecordingI } from './types';
+import logger from './utils/remoteLogger';
 
-// Since we're using a proxy, we can always use a relative URL
-// This works regardless of whether we're in development or production
-const API_BASE_URL = '';  // Changed from '/api' to avoid duplication
+/**
+ * Get the backend URL from environment variables
+ */
+export const getBackendUrl = (): string => {
+  const backendUrl = import.meta.env.VITE_BACKEND_URL || 'https://isaiah-tpa.ngrok.app';
+  return backendUrl.replace(/\/$/, ''); // Remove trailing slash
+};
+
+// Use backend URL for production, proxy for development
+const API_BASE_URL = import.meta.env.DEV ? '' : getBackendUrl();
+
+// Store the current frontend token for API calls
+let currentFrontendToken: string | null = null;
+
+// Function to set the frontend token from MentraOS auth
+export const setFrontendToken = (token: string | null): void => {
+  currentFrontendToken = token;
+};
 
 // Create axios instance
 const axiosInstance = axios.create({
@@ -16,15 +32,35 @@ const axiosInstance = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  // Include credentials for cookie-based auth from AugmentOS SDK
+  // Include credentials for cookie-based auth from MentraOS SDK
   withCredentials: true,
 });
 
-// Empty auth headers function - AugmentOS SDK handles auth via cookies
-// No more mock user IDs - consistent auth across all environments
+// Add response interceptor for debugging
+axiosInstance.interceptors.response.use(
+  (response) => {
+    logger.debug(`[API] Response ${response.config.method?.toUpperCase()} ${response.config.url} - Status: ${response.status}`);
+    return response;
+  },
+  (error) => {
+    if (axios.isAxiosError(error)) {
+      logger.error(`[API] Error ${error.config?.method?.toUpperCase()} ${error.config?.url} - Status: ${error.response?.status}`);
+      logger.error('[API] Error response:', error.response?.data);
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Get auth headers with MentraOS frontend token
 const getAuthHeader = (): Record<string, string> => {
-  // No custom auth headers needed - SDK handles auth
-  return {};
+  const headers: Record<string, string> = {};
+  
+  // Add MentraOS frontend token if available
+  if (currentFrontendToken) {
+    headers['Authorization'] = `Bearer ${currentFrontendToken}`;
+  }
+  
+  return headers;
 };
 
 // Handler for SSE connections
@@ -42,7 +78,7 @@ const api = {
       });
       
       // Convert Date strings to numbers
-      return response.data.map((recording: any) => ({
+      return response.data.map((recording: RecordingI) => ({
         ...recording,
         createdAt: new Date(recording.createdAt).getTime(),
         updatedAt: new Date(recording.updatedAt).getTime()
@@ -63,11 +99,27 @@ const api = {
     },
     
     startRecording: async (sessionId: string): Promise<string> => {
-      const response = await axiosInstance.post('/api/recordings/start', { sessionId }, {
-        headers: getAuthHeader()
-      });
+      logger.log(`[API] Starting recording with sessionId: ${sessionId}`);
+      logger.log('[API] Auth headers:', JSON.stringify(getAuthHeader()));
       
-      return response.data.id;
+      try {
+        const response = await axiosInstance.post('/api/recordings/start', { sessionId }, {
+          headers: getAuthHeader()
+        });
+        
+        logger.log(`[API] Start recording response status: ${response.status}`);
+        logger.log(`[API] Start recording response data:`, response.data);
+        
+        return response.data.id;
+      } catch (error) {
+        logger.error('[API] Start recording request failed:', error);
+        if (axios.isAxiosError(error)) {
+          logger.error('[API] Response status:', error.response?.status);
+          logger.error('[API] Response data:', error.response?.data);
+          logger.error('[API] Response headers:', error.response?.headers);
+        }
+        throw error;
+      }
     },
     
     stopRecording: async (id: string): Promise<void> => {
@@ -160,16 +212,24 @@ const api = {
   events: {
     connect: (): EventSource | null => {
       if (eventSourceInstance && eventSourceInstance.readyState !== EventSource.CLOSED) {
+        console.log('[API] SSE already connected, reusing existing connection');
         return eventSourceInstance;
       }
       
-      // With proxy, we can use relative URL for SSE
-      const eventUrl = '/api/events';
+      // Build SSE URL with frontend token for authentication (like Flash app)
+      const baseUrl = import.meta.env.DEV ? '' : getBackendUrl();
+      let eventUrl = `${baseUrl}/api/events`;
       
-      console.log('Connecting to SSE at:', eventUrl);
+      // Add frontend token as query parameter if available
+      if (currentFrontendToken) {
+        eventUrl += `?token=${encodeURIComponent(currentFrontendToken)}`;
+      }
+      
+      console.log('Connecting to SSE at:', eventUrl.replace(/token=[^&]+/, 'token=***'));
       
       // Log network status to help with debugging
       console.log('Network status:', navigator.onLine ? 'online' : 'offline');
+      console.log('Frontend token available:', !!currentFrontendToken);
       
       // Create a new EventSource with the appropriate URL
       // withCredentials ensures auth cookies are sent
