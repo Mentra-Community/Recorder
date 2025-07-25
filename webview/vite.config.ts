@@ -30,7 +30,7 @@ export default defineConfig({
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
       credentials: true,
     },
-    allowedHosts: ['localhost', 'isaiah-webview.ngrok.app', 'isaiah-tpa.ngrok.app'],
+    allowedHosts: ['localhost', 'isaiah-webview.ngrok.app', 'isaiah-tpa.ngrok.app', 'recorder.mentra.glass'],
     proxy: {
       '/api': {
         target: process.env.VITE_BACKEND_URL || 'https://isaiah-tpa.ngrok.app',
