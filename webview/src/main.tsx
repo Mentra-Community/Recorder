@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { MentraAuthProvider } from '@mentra/react';
 import App from './App';
 import './index.css';
-import { enableRemoteConsole } from './utils/remoteLogger';
+// import { enableRemoteConsole } from './utils/remoteLogger';
 
 // Enable remote logging in development
 // Disabled for now due to recursion issues

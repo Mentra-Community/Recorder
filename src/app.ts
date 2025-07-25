@@ -3,7 +3,7 @@
  * Main application entry point
  */
 
-import { AppServer, TpaSession, ViewType, AuthenticatedRequest } from '@mentra/sdk';
+import { AppServer, AuthenticatedRequest, AppSession } from '@mentra/sdk';
 import path from 'path';
 import cors from 'cors';
 import express, { Express, Request, Response, NextFunction } from 'express';
@@ -99,7 +99,9 @@ class RecorderServer extends AppServer {
       'http://localhost:8069', // Backend server
       'http://localhost:3000',  // Local testing
       'https://recorder-webview.ngrok.app', // Vite dev server
-      'https://isaiah-webview.ngrok.app' // Actual webview ngrok URL
+      'https://isaiah-webview.ngrok.app', // Actual webview ngrok URL
+      'https://isaiah-tpa.ngrok.app',
+      'https://recorder.mentra.glass',
     ];
 
     // CORS configuration for separate servers
@@ -178,7 +180,7 @@ class RecorderServer extends AppServer {
    * Handle new TPA session
    * This is called automatically by the AppServer base class
    */
-  protected async onSession(session: TpaSession, sessionId: string, userId: string): Promise<void> {
+  protected async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> {
     console.log(`New TPA session: ${sessionId} for user ${userId}`);
 
     // Set up SDK session handlers for audio and transcription
