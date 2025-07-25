@@ -33,7 +33,7 @@ export default defineConfig({
     allowedHosts: ['localhost', 'isaiah-webview.ngrok.app', 'isaiah-tpa.ngrok.app', 'recorder.mentra.glass'],
     proxy: {
       '/api': {
-        target: process.env.VITE_BACKEND_URL || 'https://isaiah-tpa.ngrok.app',
+        target: process.env.VITE_BACKEND_URL || 'https://recorder.mentra.glass',
         changeOrigin: true,
         secure: false,
       }
@@ -65,6 +65,6 @@ export default defineConfig({
   // Ensure environment variables are available
   define: {
     // Make sure Vite env vars are properly defined
-    'import.meta.env.VITE_BACKEND_URL': JSON.stringify(process.env.VITE_BACKEND_URL || 'https://isaiah-tpa.ngrok.app')
+    'import.meta.env.VITE_BACKEND_URL': JSON.stringify(process.env.VITE_BACKEND_URL || 'https://recorder.mentra.glass')
   }
 })
