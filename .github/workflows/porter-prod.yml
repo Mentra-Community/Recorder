@@ -1,7 +1,7 @@
 "on":
     push:
         branches:
-            - main
+            - fix-audio
 name: "[prod] 🚀 Deploy Recorder 🎙️ to Porter.run"
 jobs:
     porter-deploy:

@@ -98,6 +98,34 @@ class RecordingsService {
   private activeSdkSessions = new Map<string, TpaSession>();
 
   /**
+   * Per-recording processing chains to serialize audio chunk handling (FIFO)
+   */
+  private processingChains = new Map<string, Promise<void>>();
+
+  /**
+   * Enqueue an audio chunk for ordered processing for a specific recording
+   */
+  private enqueueAudioChunk(recordingId: string, chunk: AudioChunk): void {
+    const prev = this.processingChains.get(recordingId) || Promise.resolve();
+    const task = prev
+      .then(() => this.processAudioChunk(recordingId, chunk))
+      .catch((err) => {
+        console.error(`[AUDIO] Error in queued processing for ${recordingId}:`, err);
+      });
+
+    // Store the new tail of the chain
+    this.processingChains.set(recordingId, task);
+
+    // Optional cleanup: remove entry when this task is the current tail and finishes
+    task.finally(() => {
+      const current = this.processingChains.get(recordingId);
+      if (current === task) {
+        this.processingChains.delete(recordingId);
+      }
+    });
+  }
+
+  /**
    * Handle new session from AugmentOS SDK
    */
   setupSDKSession(session: TpaSession, sessionId: string, userId: string): void {
@@ -114,12 +142,16 @@ class RecordingsService {
     
     // Set up handlers for audio chunks
     session.events.onAudioChunk(async (chunk: AudioChunk) => {
-      // Get active recording for this user from database
-      const activeRecording = await this.getActiveRecordingForUser(userId);
-      
-      if (activeRecording && activeRecording.status === RecordingStatus.RECORDING) {
-        // Only process chunks for recordings in RECORDING state
-        await this.processAudioChunk(activeRecording._id.toString(), chunk);
+      try {
+        // Get active recording for this user from database
+        const activeRecording = await this.getActiveRecordingForUser(userId);
+
+        if (activeRecording && activeRecording.status === RecordingStatus.RECORDING) {
+          // Enqueue for ordered processing instead of processing concurrently
+          this.enqueueAudioChunk(activeRecording._id.toString(), chunk);
+        }
+      } catch (err) {
+        console.error(`[AUDIO] Error scheduling chunk for user ${userId}:`, err);
       }
     });
     
@@ -643,6 +675,13 @@ class RecordingsService {
       
       // Now finalize the storage
       try {
+        // Wait for any queued audio chunk processing to complete for this recording
+        const inflight = this.processingChains.get(recordingId);
+        if (inflight) {
+          console.log(`[RECORDING] Waiting for in-flight chunk processing to finish for ${recordingId}`);
+          await inflight.catch(() => {/* handled in enqueue */});
+        }
+
         let fileUrl;
         
         // Check if storage was initialized
