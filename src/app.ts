@@ -55,7 +55,7 @@ class RecorderServer extends AppServer {
     }));
 
     // Debug middleware for development
-    app.use(this.debugMiddleware);
+    app.use(this.debugMiddleware as express.RequestHandler);
 
     // Set up CORS
     this.setupCors();
@@ -181,10 +181,30 @@ class RecorderServer extends AppServer {
    * This is called automatically by the AppServer base class
    */
   protected async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> {
+    session.dashboard.content.write("Stock price....");
+    session.events.onAudioChunk((chunk => {
+      this.logger.debug(`Audio chunk received: ${chunk.arrayBuffer?.byteLength} bytes`);
+    }))
     console.log(`New TPA session: ${sessionId} for user ${userId}`);
 
     // Set up SDK session handlers for audio and transcription
     recordingsService.setupSDKSession(session, sessionId, userId);
+
+    // Optional: auto-start a recording when a session starts (for diagnostics)
+    const autoStart = (process.env.RECORDER_AUTO_START_ON_SESSION || '').toLowerCase();
+    const shouldAutoStart = autoStart === 'true' || autoStart === '1' || autoStart === 'yes';
+    if (shouldAutoStart) {
+      console.log(`[AUTO] RECORDER_AUTO_START_ON_SESSION enabled — attempting to auto-start recording for ${userId}`);
+      try {
+        // Mark as voice-initiated to bypass any active-session gating logic
+        const recId = await recordingsService.startRecording(userId, /*isVoiceInitiated*/ true);
+        console.log(`[AUTO] Auto-started recording ${recId} for user ${userId}`);
+      } catch (err) {
+        console.error(`[AUTO] Failed to auto-start recording for user ${userId}:`, err);
+      }
+    } else {
+      console.log(`[AUTO] RECORDER_AUTO_START_ON_SESSION disabled — not auto-starting recording`);
+    }
 
     // Show welcome message on glasses
     session.layouts.showTextWall("MentraOS Recorder App - Open the webview to manage recordings!");
