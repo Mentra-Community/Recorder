@@ -3,7 +3,7 @@
  * Handles business logic for recordings
  */
 
-import { AudioChunk, TpaSession, TranscriptionData, ViewType } from '@mentra/sdk';
+import { AppSession, AudioChunk, TpaSession, TranscriptionData, ViewType } from '@mentra/sdk';
 import { RecordingStatus, AudioChunkI, TranscriptionDataI } from '../types/recordings.types';
 import { Recording, RecordingDocument } from '../models/recording.models';
 import mongoose from 'mongoose';
@@ -13,18 +13,31 @@ import { hasActiveSession, registerActiveSession } from '../api/session.api';
 
 class RecordingsService {
   /**
+   * In-memory cache for active recordings (single-process only)
+   * Keyed by recordingId
+   */
+  private activeRecordingsCache = new Map<string, RecordingDocument>();
+  /**
+   * Fast lookup of a user's active recordingId
+   */
+  private activeRecordingByUser = new Map<string, string>();
+  /**
    * Clean up stale recordings from previous sessions
    */
   private async cleanupStaleRecordings(userId: string): Promise<void> {
     try {
       console.log(`[CLEANUP] Checking for stale recordings for user ${userId}`);
+      // Only consider recordings that have been inactive beyond a threshold
+      const staleThresholdMs = Number(process.env.RECORDER_STALE_THRESHOLD_MS || 2 * 60 * 1000); // default 2 minutes
+      const cutoff = new Date(Date.now() - staleThresholdMs);
       
       // Find all recordings that are stuck in active states
       const staleRecordings = await Recording.find({
         userId,
         status: {
           $in: [RecordingStatus.INITIALIZING, RecordingStatus.RECORDING, RecordingStatus.STOPPING]
-        }
+        },
+        updatedAt: { $lt: cutoff }
       }).exec();
       
       if (staleRecordings.length > 0) {
@@ -40,6 +53,14 @@ class RecordingsService {
               error: 'Recording was interrupted by session disconnect',
               updatedAt: new Date()
             });
+
+            // Ensure cache cleanup
+            this.activeRecordingsCache.delete(recording._id.toString());
+            // Remove mapping if it points to this recording
+            const current = this.activeRecordingByUser.get(userId);
+            if (current === recording._id.toString()) {
+              this.activeRecordingByUser.delete(userId);
+            }
             
             // Try to finalize storage if it was initialized
             if (recording.storage?.initialized) {
@@ -74,6 +95,17 @@ class RecordingsService {
    */
   async getActiveRecordingForUser(userId: string): Promise<RecordingDocument | null> {
     try {
+      // 1) Try cache first
+      for (const rec of this.activeRecordingsCache.values()) {
+        if (
+          rec.userId === userId &&
+          [RecordingStatus.INITIALIZING, RecordingStatus.RECORDING, RecordingStatus.STOPPING].includes(rec.status)
+        ) {
+          return rec;
+        }
+      }
+
+      // 2) Fallback to DB
       const activeRecording = await Recording.findOne({
         userId,
         status: {
@@ -84,7 +116,12 @@ class RecordingsService {
           ]
         }
       }).exec();
-      
+
+      // 3) Populate cache if found
+      if (activeRecording) {
+        this.activeRecordingsCache.set(activeRecording._id.toString(), activeRecording);
+      }
+
       return activeRecording;
     } catch (error) {
       console.error(`[RECORDING] Error getting active recording for user ${userId}:`, error);
@@ -98,9 +135,46 @@ class RecordingsService {
   private activeSdkSessions = new Map<string, TpaSession>();
 
   /**
+   * Per-recording processing chains to serialize audio chunk handling (FIFO)
+   */
+  private processingChains = new Map<string, Promise<void>>();
+
+  /**
+   * Remove any user mapping that points to this recording ID
+   */
+  private clearActiveMappingForRecording(recordingId: string): void {
+    for (const [uid, rid] of this.activeRecordingByUser.entries()) {
+      if (rid === recordingId) this.activeRecordingByUser.delete(uid);
+    }
+  }
+
+  /**
+   * Enqueue an audio chunk for ordered processing for a specific recording
+   */
+  private enqueueAudioChunk(recordingId: string, chunk: AudioChunk): void {
+    const prev = this.processingChains.get(recordingId) || Promise.resolve();
+    const task = prev
+      .then(() => this.processAudioChunk(recordingId, chunk))
+      .catch((err) => {
+        console.error(`[AUDIO] Error in queued processing for ${recordingId}:`, err);
+      });
+
+    // Store the new tail of the chain
+    this.processingChains.set(recordingId, task);
+
+    // Optional cleanup: remove entry when this task is the current tail and finishes
+    task.finally(() => {
+      const current = this.processingChains.get(recordingId);
+      if (current === task) {
+        this.processingChains.delete(recordingId);
+      }
+    });
+  }
+
+  /**
    * Handle new session from AugmentOS SDK
    */
-  setupSDKSession(session: TpaSession, sessionId: string, userId: string): void {
+  setupSDKSession(session: AppSession, sessionId: string, userId: string): void {
     console.log(`[TPA SESSION] Setting up session for user ${userId}`);
     
     // Store session for future use
@@ -112,28 +186,61 @@ class RecordingsService {
     // Register this as an active session
     registerActiveSession(userId);
     
-    // Set up handlers for audio chunks
-    session.events.onAudioChunk(async (chunk: AudioChunk) => {
-      // Get active recording for this user from database
-      const activeRecording = await this.getActiveRecordingForUser(userId);
-      
-      if (activeRecording && activeRecording.status === RecordingStatus.RECORDING) {
-        // Only process chunks for recordings in RECORDING state
-        await this.processAudioChunk(activeRecording._id.toString(), chunk);
+    // Diagnostics for AUDIO_CHUNK flow (even when not recording)
+    let diagChunkCount = 0;
+    let diagByteTotal = 0;
+    let diagStartWall = Date.now();
+  session.events.onAudioChunk(async (chunk: AudioChunk) => {
+      try {
+        // Per-chunk diagnostics every 100 chunks
+        diagChunkCount++;
+        const size = chunk.arrayBuffer?.byteLength || 0;
+        diagByteTotal += size;
+        if (diagChunkCount % 100 === 0) {
+          const elapsed = (Date.now() - diagStartWall) / 1000;
+          const expectedBytes = Math.round(elapsed * 16000 * 2);
+          const head = Buffer.from(chunk.arrayBuffer as ArrayBufferLike).subarray(0, Math.min(10, size));
+          console.log(`[AUDIO:DIAG] user=${userId} chunks=${diagChunkCount} bytes=${diagByteTotal} elapsedSec=${elapsed.toFixed(1)} expectedAt16k=${expectedBytes} head10=[${Array.from(head)}]`);
+        }
+      } catch (e) {
+        console.warn(`[AUDIO:DIAG] error computing diagnostics:`, e);
       }
+
+      try {
+        // Fast-path: use in-memory mapping to avoid DB/cached scans per chunk
+        const recordingId = this.activeRecordingByUser.get(userId);
+        if (recordingId) {
+          this.enqueueAudioChunk(recordingId, chunk);
+        }
+      } catch (err) {
+        console.error(`[AUDIO] Error scheduling chunk for user ${userId}:`, err);
+      }
+    });
+
+    // Non-fatal SDK error handling: ignore benign unknown-type messages
+    session.events.onError((err: any) => {
+      const message = err?.message || String(err);
+      if (message?.includes('Unrecognized message type: capabilities_update')) {
+        console.warn(`[SDK:WARN] Ignoring unsupported message 'capabilities_update' (update SDK/cloud if needed)`);
+        return;
+      }
+      if (message?.startsWith('Unrecognized message type:')) {
+        console.warn(`[SDK:WARN] ${message} (non-fatal)`);
+        return;
+      }
+      console.warn(`[SDK:ERROR] Non-fatal error event:`, err);
     });
     
     // Set up handlers for transcription
     try {
-      session.onTranscriptionForLanguage('en-US', async (transcription: TranscriptionData) => {
+  session.onTranscriptionForLanguage('en-US', async (transcription: TranscriptionData) => {
         console.log(`[TRANSCRIPTION] ${transcription.isFinal ? 'FINAL' : 'interim'}: "${transcription.text}"`);
         
-        // Process transcription if user has an active recording
-        const activeRecording = await this.getActiveRecordingForUser(userId);
-        
-        if (activeRecording && activeRecording.status === RecordingStatus.RECORDING) {
+        // Process transcription if user has an active recording (fast-path)
+        const recordingId = this.activeRecordingByUser.get(userId);
+        if (recordingId) {
           await this.updateTranscript(
-            activeRecording._id.toString(), 
+            recordingId,
             transcription.text,
             transcription.isFinal
           );
@@ -147,16 +254,22 @@ class RecordingsService {
             console.log(`[VOICE COMMAND] Received 'start recording' command from user ${userId}`);
             
             try {
-              // Check if user already has an active recording first
-              const existingRecording = await this.getActiveRecordingForUser(userId);
+              // Check if user already has an active recording first (fast-path)
+              const existingId = this.activeRecordingByUser.get(userId);
+              let existingRecording: RecordingDocument | null = null;
+              if (!existingId) {
+                // Fallback to DB/cached check if not in map
+                existingRecording = await this.getActiveRecordingForUser(userId);
+              }
               
-              if (existingRecording) {
-                console.log(`[VOICE COMMAND] User ${userId} already has an active recording: ${existingRecording._id}`);
+              if (existingId || existingRecording) {
+                const rid = existingId ?? existingRecording?._id.toString();
+                console.log(`[VOICE COMMAND] User ${userId} already has an active recording: ${rid}`);
                 
                 // Send notification to client about the existing recording
                 streamService.broadcastToUser(userId, 'voice-command', {
                   command: 'recording-already-active',
-                  recordingId: existingRecording._id.toString(),
+                  recordingId: rid,
                   timestamp: Date.now()
                 });
                 
@@ -204,11 +317,14 @@ class RecordingsService {
             console.log(`[VOICE COMMAND] Received 'stop recording' command from user ${userId}`);
             
             try {
-              // Get the user's active recording (if any)
-              const activeRecording = await this.getActiveRecordingForUser(userId);
+              // Get the user's active recording (if any) from map first
+              const mappedId = this.activeRecordingByUser.get(userId);
+              const recordingId = mappedId || (await (async () => {
+                const r = await this.getActiveRecordingForUser(userId);
+                return r?._id.toString();
+              })());
               
-              if (activeRecording) {
-                const recordingId = activeRecording._id.toString();
+              if (recordingId) {
                 
                 console.log(`[VOICE COMMAND] Stopping active recording ${recordingId} for user ${userId}`);
                 
@@ -322,11 +438,15 @@ class RecordingsService {
         updatedAt: new Date()
       });
       
-      // Save to MongoDB - this will enforce the unique index constraint
-      const savedRecording = await newRecording.save();
-      const recordingId = savedRecording._id.toString();
-      
-      console.log(`[RECORDING] Created recording in MongoDB with ID: ${recordingId}`);
+  // Save to MongoDB - this will enforce the unique index constraint
+  const savedRecording = await newRecording.save();
+  const recordingId = savedRecording._id.toString();
+
+  // Cache it immediately and track active map
+  this.activeRecordingsCache.set(recordingId, savedRecording);
+  this.activeRecordingByUser.set(userId, recordingId);
+
+  console.log(`[RECORDING] Created recording in MongoDB with ID: ${recordingId}`);
       
       try {
         // Initialize storage
@@ -338,6 +458,13 @@ class RecordingsService {
           'storage.initialized': true,
           updatedAt: new Date()
         });
+
+        // Update cache to reflect status/storage
+        const cached = this.activeRecordingsCache.get(recordingId) || savedRecording;
+        cached.status = RecordingStatus.RECORDING;
+        cached.storage = { ...cached.storage, initialized: true } as any;
+        cached.updatedAt = new Date();
+        this.activeRecordingsCache.set(recordingId, cached);
         
         // Notify clients
         streamService.broadcastToUser(userId, 'recording-status', {
@@ -364,11 +491,15 @@ class RecordingsService {
         // If storage initialization fails, update recording status to ERROR
         console.error(`[RECORDING] Failed to initialize storage for recording ${recordingId}:`, storageError);
         
-        await Recording.findByIdAndUpdate(recordingId, {
+  await Recording.findByIdAndUpdate(recordingId, {
           status: RecordingStatus.ERROR,
           error: storageError instanceof Error ? storageError.message : String(storageError),
           updatedAt: new Date()
         });
+
+  // Remove from cache/mapping on hard failure
+  this.activeRecordingsCache.delete(recordingId);
+  this.activeRecordingByUser.delete(userId);
         
         // Notify clients about error
         streamService.broadcastToUser(userId, 'recording-error', {
@@ -391,15 +522,25 @@ class RecordingsService {
    */
   async processAudioChunk(recordingId: string, chunk: AudioChunk): Promise<void> {
     try {
-      // Verify recording exists and is in RECORDING state
-      const recordingDoc = await Recording.findById(recordingId).exec();
+      // Use cache first, fallback to DB
+  let recordingDoc: RecordingDocument | null | undefined = this.activeRecordingsCache.get(recordingId);
+      if (!recordingDoc) {
+        recordingDoc = await Recording.findById(recordingId).exec();
+        if (recordingDoc) {
+          this.activeRecordingsCache.set(recordingId, recordingDoc);
+        }
+      }
       
       if (!recordingDoc) {
         console.log(`[AUDIO] Ignoring chunk for non-existent recording ${recordingId}`);
         return;
       }
       
-      if (recordingDoc.status !== RecordingStatus.RECORDING) {
+      // Accept chunks while RECORDING or STOPPING to avoid late-frame loss
+      if (
+        recordingDoc.status !== RecordingStatus.RECORDING &&
+        recordingDoc.status !== RecordingStatus.STOPPING
+      ) {
         console.log(`[AUDIO] Ignoring chunk for recording ${recordingId} - recording is in ${recordingDoc.status} state`);
         return;
       }
@@ -421,6 +562,11 @@ class RecordingsService {
           'storage.initialized': true,
           updatedAt: new Date()
         });
+
+        // Update cache
+        recordingDoc.storage = { ...recordingDoc.storage, initialized: true } as any;
+        recordingDoc.updatedAt = new Date();
+        this.activeRecordingsCache.set(recordingId, recordingDoc);
       }
       
       // Try to add the chunk to storage
@@ -432,7 +578,19 @@ class RecordingsService {
         }
         
         // Add chunk to storage
-        const chunkProcessed = await storageService.addChunk(recordingId, chunk.arrayBuffer);
+        // Ensure ArrayBuffer type (not just ArrayBufferLike)
+        let chunkArrayBuffer: ArrayBuffer;
+        if (chunk.arrayBuffer instanceof ArrayBuffer) {
+          chunkArrayBuffer = chunk.arrayBuffer as ArrayBuffer;
+        } else {
+          // Copy into a new ArrayBuffer to satisfy type and avoid SharedArrayBuffer issues
+          const view = new Uint8Array(chunk.arrayBuffer as ArrayBufferLike);
+          const copy = new Uint8Array(view.length);
+          copy.set(view);
+          chunkArrayBuffer = copy.buffer;
+        }
+
+        const chunkProcessed = await storageService.addChunk(recordingId, chunkArrayBuffer);
         
         // If a significant amount of data was processed, update duration
         if (chunkProcessed) {
@@ -446,6 +604,11 @@ class RecordingsService {
             duration: currentDuration,
             updatedAt: new Date()
           });
+
+          // Update cache
+          recordingDoc.duration = currentDuration;
+          recordingDoc.updatedAt = new Date();
+          this.activeRecordingsCache.set(recordingId, recordingDoc);
           
           // Send update to clients
           streamService.broadcastToUser(recordingDoc.userId, 'recording-status', {
@@ -467,6 +630,9 @@ class RecordingsService {
             updatedAt: new Date()
           });
 
+          // Remove from cache
+          this.activeRecordingsCache.delete(recordingId);
+
           // Notify clients about error
           streamService.broadcastToUser(recordingDoc.userId, 'recording-error', {
             id: recordingId,
@@ -486,8 +652,14 @@ class RecordingsService {
    */
   async updateTranscript(recordingId: string, text: string, isFinal: boolean = true): Promise<void> {
     try {
-      // Verify recording exists and is in RECORDING state
-      const recordingDoc = await Recording.findById(recordingId).exec();
+      // Use cache first, fallback to DB
+  let recordingDoc: RecordingDocument | null | undefined = this.activeRecordingsCache.get(recordingId);
+      if (!recordingDoc) {
+        recordingDoc = await Recording.findById(recordingId).exec();
+        if (recordingDoc) {
+          this.activeRecordingsCache.set(recordingId, recordingDoc);
+        }
+      }
       
       if (!recordingDoc) {
         console.error(`[TRANSCRIPT] Recording ${recordingId} not found for transcript update`);
@@ -529,6 +701,13 @@ class RecordingsService {
           currentInterim: '', // Clear interim since we now have a final
           updatedAt: new Date()
         });
+
+        // Update cache
+        recordingDoc.transcript = fullTranscript as any;
+        (recordingDoc as any).transcriptChunks = updatedChunks;
+        (recordingDoc as any).currentInterim = '';
+        recordingDoc.updatedAt = new Date();
+        this.activeRecordingsCache.set(recordingId, recordingDoc);
         
         // Send the full transcript to clients
         streamService.broadcastToUser(userId, 'transcript', {
@@ -544,6 +723,11 @@ class RecordingsService {
           currentInterim: text,
           updatedAt: new Date()
         });
+
+        // Update cache
+        (recordingDoc as any).currentInterim = text;
+        recordingDoc.updatedAt = new Date();
+        this.activeRecordingsCache.set(recordingId, recordingDoc);
         
         // Build the text to display to the user (all final chunks + current interim)
         const existingChunks = recordingDoc.transcriptChunks || [];
@@ -578,6 +762,9 @@ class RecordingsService {
       // If recording doesn't exist, return early
       if (!recordingDoc) {
         console.log(`[RECORDING] Recording ${recordingId} not found in database`);
+        // Ensure cache/map is clean
+        this.activeRecordingsCache.delete(recordingId);
+        this.clearActiveMappingForRecording(recordingId);
         return;
       }
       
@@ -585,6 +772,9 @@ class RecordingsService {
       if (recordingDoc.status === RecordingStatus.COMPLETED || 
           recordingDoc.status === RecordingStatus.ERROR) {
         console.log(`[RECORDING] Recording ${recordingId} is already in ${recordingDoc.status} state`);
+        // Ensure cache/map is clean
+        this.activeRecordingsCache.delete(recordingId);
+        this.clearActiveMappingForRecording(recordingId);
         return;
       }
       
@@ -611,6 +801,12 @@ class RecordingsService {
         updatedAt: new Date()
       });
       console.log(`[RECORDING] Marked recording ${recordingId} as STOPPING`);
+
+  // Update cache STOPPING
+  const cached = this.activeRecordingsCache.get(recordingId) || recordingDoc;
+  cached.status = RecordingStatus.STOPPING;
+  cached.updatedAt = new Date();
+  this.activeRecordingsCache.set(recordingId, cached);
       
       // Immediately notify clients of STOPPING state so UI can update
       streamService.broadcastToUser(userId, 'recording-status', {
@@ -643,6 +839,13 @@ class RecordingsService {
       
       // Now finalize the storage
       try {
+        // Wait for any queued audio chunk processing to complete for this recording
+        const inflight = this.processingChains.get(recordingId);
+        if (inflight) {
+          console.log(`[RECORDING] Waiting for in-flight chunk processing to finish for ${recordingId}`);
+          await inflight.catch(() => {/* handled in enqueue */});
+        }
+
         let fileUrl;
         
         // Check if storage was initialized
@@ -682,6 +885,10 @@ class RecordingsService {
         });
         
         console.log(`[RECORDING] Successfully stopped recording ${recordingId}, duration: ${duration}s`);
+
+  // Remove from cache/map
+  this.activeRecordingsCache.delete(recordingId);
+  this.activeRecordingByUser.delete(userId);
         
         // Notify clients
         streamService.broadcastToUser(userId, 'recording-status', {
@@ -704,6 +911,10 @@ class RecordingsService {
           error: error instanceof Error ? error.message : String(error),
           updatedAt: new Date()
         });
+
+  // Remove from cache/map
+  this.activeRecordingsCache.delete(recordingId);
+  this.activeRecordingByUser.delete(userId);
         
         // Notify clients
         streamService.broadcastToUser(userId, 'recording-error', {
@@ -715,6 +926,9 @@ class RecordingsService {
       }
     } catch (error) {
       console.error(`[RECORDING] Unhandled error stopping recording ${recordingId}:`, error);
+  // Ensure cache/map is clean on failure
+  this.activeRecordingsCache.delete(recordingId);
+  this.clearActiveMappingForRecording(recordingId);
       throw error;
     }
   }
@@ -771,8 +985,12 @@ class RecordingsService {
       // Delete the file from storage
       await storageService.deleteFile(recording.userId, recordingId);
       
-      // Delete from MongoDB
+  // Delete from MongoDB
       await Recording.findByIdAndDelete(recordingId).exec();
+
+  // Ensure cache/map cleanup
+  this.activeRecordingsCache.delete(recordingId);
+  this.clearActiveMappingForRecording(recordingId);
       
       // Notify clients
       streamService.broadcastToUser(recording.userId, 'recording-deleted', {
@@ -798,6 +1016,11 @@ class RecordingsService {
       
       if (!updatedRecording) {
         throw new Error(`Recording ${recordingId} not found or could not be updated`);
+      }
+
+      // Keep cache in sync if it's an active recording
+      if (this.activeRecordingsCache.has(recordingId)) {
+        this.activeRecordingsCache.set(recordingId, updatedRecording);
       }
       
       // Notify clients
