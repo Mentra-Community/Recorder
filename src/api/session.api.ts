@@ -3,9 +3,9 @@
  * Endpoints for querying TPA session status
  */
 
-import { AuthenticatedRequest } from '@mentra/sdk';
-import { Router } from 'express';
-import { Request, Response } from 'express';
+import { AuthenticatedRequest } from "@mentra/sdk";
+import { Router } from "express";
+import { Request, Response } from "express";
 // import { AuthenticatedRequest, isaiahMiddleware } from '../middleware/isaiah.middleware';
 
 const router = Router();
@@ -36,24 +36,40 @@ export function unregisterSession(userId: string): void {
  * Check if a user has an active session
  */
 export function hasActiveSession(userId: string): boolean {
-  return activeSessions.has(userId) && activeSessions.get(userId) === true;
+  const isActive =
+    activeSessions.has(userId) && activeSessions.get(userId) === true;
+  console.log(
+    `[SESSION] hasActiveSession check for user: "${userId}" => ${isActive}`,
+  );
+  console.log(
+    `[SESSION] Registered sessions: ${JSON.stringify(Array.from(activeSessions.keys()))}`,
+  );
+  return isActive;
 }
 
 /**
  * GET /api/session/is-connected
  * Check if the authenticated user has an active TPA session
  */
-router.get('/is-connected', (req: AuthenticatedRequest, res: Response) => {
+router.get("/is-connected", (req: AuthenticatedRequest, res: Response) => {
   const userId = req.authUserId;
+  console.log(
+    `[SESSION] /is-connected request - authUserId from token: "${userId}"`,
+  );
+
   if (!userId) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    console.log(
+      `[SESSION] /is-connected - no userId in request, returning 401`,
+    );
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
   const isConnected = hasActiveSession(userId);
-  
+  console.log(`[SESSION] /is-connected result for "${userId}": ${isConnected}`);
+
   return res.json({
     connected: isConnected,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -61,16 +77,16 @@ router.get('/is-connected', (req: AuthenticatedRequest, res: Response) => {
  * GET /api/session/active-sessions
  * Admin endpoint to get information about active sessions
  */
-router.get('/active-sessions', (req: Request, res: Response) => {
+router.get("/active-sessions", (req: Request, res: Response) => {
   // In production, this would require admin authentication
   const sessions = Array.from(activeSessions.entries()).map(([userId]) => ({
     userId,
-    connectedSince: new Date().toISOString() // Placeholder - could store timestamps if needed
+    connectedSince: new Date().toISOString(), // Placeholder - could store timestamps if needed
   }));
-  
+
   return res.json({
     count: activeSessions.size,
-    sessions
+    sessions,
   });
 });
 
