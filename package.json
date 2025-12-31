@@ -4,8 +4,9 @@
   "type": "module",
   "module": "src/index.ts",
   "scripts": {
-    "dev": "doppler run -- bun --watch src/index.ts",
-    "dev:local": "bun --watch src/index.ts",
+    "dev": "bun run kill-ports && doppler run -- bun --watch src/index.ts",
+    "dev:local": "bun run kill-ports && bun --watch src/index.ts",
+    "kill-ports": "lsof -ti:8069,8070 | xargs kill -9 2>/dev/null || true",
     "build:webview": "bun run build.ts",
     "start": "doppler run -- bun run build:webview && doppler run -- bun src/index.ts",
     "start:local": "bun run build:webview && bun src/index.ts",
@@ -13,7 +14,7 @@
     "doppler:setup": "doppler setup"
   },
   "dependencies": {
-    "@mentra/sdk": "^2.1.29-beta.2",
+    "@mentra/sdk": "^2.1.31-beta.4",
     "@mentra/react": "^0.2.0",
     "@aws-sdk/client-s3": "^3.812.0",
     "@radix-ui/react-dialog": "^1.1.6",

@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../Api";
 import { RecordingI, RecordingStatusE } from "../types/recording";
 import { useRealTimeEvents } from "./useRealTimeEvents";
-import logger from "../utils/remoteLogger";
 
 export interface UseRecordingsOptions {
   autoRefresh?: boolean;
@@ -130,41 +129,41 @@ export function useRecordings(options: UseRecordingsOptions = {}) {
   const startRecording = useCallback(async (): Promise<string> => {
     // Prevent multiple simultaneous start attempts
     if (startingRecording.current) {
-      logger.warn(
+      console.warn(
         "[useRecordings] Already starting a recording, skipping duplicate attempt",
       );
       throw new Error("Already starting a recording");
     }
 
-    logger.log("[useRecordings] Setting startingRecording flag to true");
+    console.log("[useRecordings] Setting startingRecording flag to true");
     startingRecording.current = true;
 
     try {
       // Check session status first
-      logger.log(
+      console.log(
         "[useRecordings] Checking session status before starting recording",
       );
       const isConnected = await checkSessionStatus();
       if (!isConnected) {
-        logger.error("[useRecordings] No active session, throwing error");
+        console.error("[useRecordings] No active session, throwing error");
         throw new Error(
           "No active AugmentOS SDK session. Please ensure your glasses are connected.",
         );
       }
 
       const sessionId = `session_${Date.now()}`;
-      logger.log(
+      console.log(
         `[useRecordings] Making API call to start recording with sessionId: ${sessionId}`,
       );
       const recordingId = await api.recordings.startRecording(sessionId);
-      logger.log(
+      console.log(
         `[useRecordings] Recording started successfully with ID: ${recordingId}`,
       );
       return recordingId;
     } catch (err) {
-      logger.error("[useRecordings] Error starting recording:", err);
-      logger.error("[useRecordings] Error type:", typeof err);
-      logger.error(
+      console.error("[useRecordings] Error starting recording:", err);
+      console.error("[useRecordings] Error type:", typeof err);
+      console.error(
         "[useRecordings] Error message:",
         err instanceof Error ? err.message : String(err),
       );
@@ -182,7 +181,7 @@ export function useRecordings(options: UseRecordingsOptions = {}) {
         err instanceof Error &&
         err.message.includes("already has an active recording")
       ) {
-        logger.warn(
+        console.warn(
           "[useRecordings] User already has an active recording, not setting general error state",
         );
         throw err; // Still throw so caller can handle it
@@ -193,7 +192,7 @@ export function useRecordings(options: UseRecordingsOptions = {}) {
       );
       throw err;
     } finally {
-      logger.log("[useRecordings] Setting startingRecording flag to false");
+      console.log("[useRecordings] Setting startingRecording flag to false");
       startingRecording.current = false;
     }
   }, [checkSessionStatus]);

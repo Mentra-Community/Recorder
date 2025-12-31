@@ -4,7 +4,6 @@
 
 import axios from "axios";
 import { RecordingI } from "./types";
-import logger from "./utils/remoteLogger";
 
 /**
  * Check if we're in development mode
@@ -56,17 +55,17 @@ const axiosInstance = axios.create({
 // Add response interceptor for debugging
 axiosInstance.interceptors.response.use(
   (response) => {
-    logger.debug(
+    console.debug(
       `[API] Response ${response.config.method?.toUpperCase()} ${response.config.url} - Status: ${response.status}`,
     );
     return response;
   },
   (error) => {
     if (axios.isAxiosError(error)) {
-      logger.error(
+      console.error(
         `[API] Error ${error.config?.method?.toUpperCase()} ${error.config?.url} - Status: ${error.response?.status}`,
       );
-      logger.error("[API] Error response:", error.response?.data);
+      console.error("[API] Error response:", error.response?.data);
     }
     return Promise.reject(error);
   },
@@ -120,8 +119,8 @@ const api = {
     },
 
     startRecording: async (sessionId: string): Promise<string> => {
-      logger.log(`[API] Starting recording with sessionId: ${sessionId}`);
-      logger.log("[API] Auth headers:", JSON.stringify(getAuthHeader()));
+      console.log(`[API] Starting recording with sessionId: ${sessionId}`);
+      console.log("[API] Auth headers:", JSON.stringify(getAuthHeader()));
 
       try {
         const response = await axiosInstance.post(
@@ -132,16 +131,16 @@ const api = {
           },
         );
 
-        logger.log(`[API] Start recording response status: ${response.status}`);
-        logger.log(`[API] Start recording response data:`, response.data);
+        console.log(`[API] Start recording response status: ${response.status}`);
+        console.log(`[API] Start recording response data:`, response.data);
 
         return response.data.id;
       } catch (error) {
-        logger.error("[API] Start recording request failed:", error);
+        console.error("[API] Start recording request failed:", error);
         if (axios.isAxiosError(error)) {
-          logger.error("[API] Response status:", error.response?.status);
-          logger.error("[API] Response data:", error.response?.data);
-          logger.error("[API] Response headers:", error.response?.headers);
+          console.error("[API] Response status:", error.response?.status);
+          console.error("[API] Response data:", error.response?.data);
+          console.error("[API] Response headers:", error.response?.headers);
         }
         throw error;
       }
