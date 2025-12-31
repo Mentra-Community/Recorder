@@ -22,6 +22,11 @@ import { routes } from "./api/routes";
 import RecorderApp from "./app";
 import streamService from "./services/stream.service";
 import * as mongodbConnection from "./connections/mongodb.connection";
+import sessionApi from "./api/session.api";
+import recordingsApi from "./api/recordings.api";
+import transcriptsApi from "./api/transcripts.api";
+import filesApi from "./api/files.api";
+import devApi from "./api/dev.api";
 import indexDev from "./webview/index.html";
 import indexProd from "./webview/index.prod.html";
 
@@ -98,6 +103,28 @@ await recorderApp.start();
 
 // Get Express app instance AFTER starting (routes are registered)
 const expressApp = recorderApp.getExpressApp();
+
+// ============================================
+// Express API Routes (NOT proxied to Bun)
+// These routes use Express middleware and in-memory state
+// ============================================
+
+// Session API - tracks active TPA sessions (must stay in Express)
+expressApp.use("/api/session", sessionApi);
+
+// Recordings API - handles recording operations (uses Express auth)
+expressApp.use("/api/recordings", recordingsApi);
+
+// Transcripts API
+expressApp.use("/api/transcripts", transcriptsApi);
+
+// Files API
+expressApp.use("/api/files", filesApi);
+
+// Development utilities
+if (process.env.NODE_ENV !== "production") {
+  expressApp.use("/api/dev", devApi);
+}
 
 // ============================================
 // SSE Stream Route (bypasses proxy)
