@@ -29,3 +29,5 @@ jobs:
           PORTER_REPO_NAME: ${{ github.event.repository.name }}
           PORTER_TAG: ${{ steps.vars.outputs.sha_short }}
           PORTER_TOKEN: ${{ secrets.PORTER_APP_15081_4689 }}
+          # Doppler config - tokens are set directly in Porter dashboard
+          DOPPLER_CONFIG: dev

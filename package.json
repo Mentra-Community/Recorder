@@ -4,10 +4,13 @@
   "type": "module",
   "module": "src/index.ts",
   "scripts": {
-    "dev": "bun --watch src/index.ts",
+    "dev": "doppler run -- bun --watch src/index.ts",
+    "dev:local": "bun --watch src/index.ts",
     "build:webview": "bun run build.ts",
-    "start": "bun run build:webview && bun src/index.ts",
-    "ngrok": "ngrok http --url=isaiah-tpa.ngrok.app 8069"
+    "start": "doppler run -- bun run build:webview && doppler run -- bun src/index.ts",
+    "start:local": "bun run build:webview && bun src/index.ts",
+    "ngrok": "ngrok http --url=isaiah-tpa.ngrok.app 8069",
+    "doppler:setup": "doppler setup"
   },
   "dependencies": {
     "@mentra/sdk": "^2.1.29-beta.2",
