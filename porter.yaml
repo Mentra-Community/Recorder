@@ -10,7 +10,7 @@ build:
 services:
   - name: recorder
     type: web
-    run: sh -c 'doppler run --token "$DOPPLER_TOKEN" --project recorder --config "$DOPPLER_CONFIG" -- bun src/index.ts'
+    run: doppler run -- bun src/index.ts
     port: 80
     cpuCores: 1.0
     ramMegabytes: 1024
@@ -21,3 +21,4 @@ services:
       PORT: "80"
       DOPPLER_TOKEN: ${DOPPLER_TOKEN}
       DOPPLER_CONFIG: ${DOPPLER_CONFIG}
+      DOPPLER_PROJECT: recorder
