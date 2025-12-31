@@ -438,22 +438,16 @@ class RecordingsService {
     // Register this as an active session
     registerActiveSession(userId);
 
-    // Set up handlers for audio chunks
-    // IMPORTANT: This handler is intentionally synchronous for the critical path
-    // to ensure chunks are queued in arrival order
-    session.events.onAudioChunk((chunk: AudioChunk) => {
-      // Fast, synchronous cache lookup
-      const cached = this.getCachedActiveRecording(userId);
+    // IMPORTANT: Set up transcription handler FIRST, then audio handler.
+    // This fixes a race condition in the SDK where subscription updates are sent
+    // as each handler is added. By setting up transcription first, we ensure
+    // the final subscription state includes both audio_chunk AND transcription.
+    // If audio is set up first, there's a timing issue where a subsequent
+    // subscription update can accidentally drop the transcription subscription.
 
-      if (cached) {
-        // Fast, synchronous queue push
-        this.enqueueChunk(cached.recordingId, chunk.arrayBuffer as ArrayBuffer);
-      }
-    });
-
-    // Set up handlers for transcription
+    // Set up handlers for transcription (MUST be before audio handler)
     try {
-      session.onTranscriptionForLanguage(
+      session.events.onTranscriptionForLanguage(
         "en-US",
         async (transcription: TranscriptionData) => {
           console.log(
@@ -627,6 +621,22 @@ class RecordingsService {
     } catch (error) {
       console.error("Error setting up transcription handler:", error);
     }
+
+    // Set up handlers for audio chunks (AFTER transcription handler)
+    // IMPORTANT: This handler is intentionally synchronous for the critical path
+    // to ensure chunks are queued in arrival order
+    session.events.onAudioChunk((chunk: AudioChunk) => {
+      // Fast, synchronous cache lookup
+      const cached = this.getCachedActiveRecording(userId);
+
+      if (cached) {
+        // Fast, synchronous queue push
+        this.enqueueChunk(cached.recordingId, chunk.arrayBuffer as ArrayBuffer);
+      }
+    });
+    console.log(
+      `[TPA SESSION] ✅ Handlers registered for user ${userId} (transcription + audio)`,
+    );
   }
 
   /**

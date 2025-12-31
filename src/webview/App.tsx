@@ -6,7 +6,6 @@ import PlaybackImproved from "./screens/PlaybackImproved/PlaybackImproved";
 import { useRecordings } from "./hooks/useRecordings";
 import { RecordingI } from "./types/recording";
 import api, { setFrontendToken, getBackendUrl } from "./Api";
-import logger from "./utils/remoteLogger";
 
 /**
  * Check if we're in development mode
@@ -184,14 +183,14 @@ const App: React.FC = () => {
 
   const handleStartRecording = async () => {
     try {
-      logger.log("[APP] handleStartRecording called from App.tsx");
+      console.log("[APP] handleStartRecording called from App.tsx");
       const recordingId = await startRecording();
-      logger.log("[APP] Recording started successfully with ID:", recordingId);
+      console.log("[APP] Recording started successfully with ID:", recordingId);
       return recordingId;
     } catch (error) {
-      logger.error("[APP] Failed to start recording:", error);
-      logger.error("[APP] Error type:", typeof error);
-      logger.error(
+      console.error("[APP] Failed to start recording:", error);
+      console.error("[APP] Error type:", typeof error);
+      console.error(
         "[APP] Error message:",
         error instanceof Error ? error.message : String(error),
       );
