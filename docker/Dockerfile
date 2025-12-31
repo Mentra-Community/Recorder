@@ -11,12 +11,14 @@ RUN bun install
 # Copy the application code
 COPY . .
 
-# Build the application
-RUN bun run build
+# Build webview for production
+RUN bun run build:webview
+
+# Set production environment
+ENV NODE_ENV=production
 
 # Expose the port
 EXPOSE 80
 
-# Ready to start the application
-CMD ["echo", "Ready to run services"]
-# CMD ["bun", "start"]
+# Don't start the application here - porter.yaml has the cmd to start it
+# CMD ["bun", "src/index.ts"]

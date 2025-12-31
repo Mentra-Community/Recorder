@@ -6,16 +6,8 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "build:webview": "bun run build.ts",
-    "prebuild": "bun run build:webview",
-    "start": "bun run build:webview && NODE_ENV=development bun src/index.ts",
-    "start:prod": "bun run build:webview && NODE_ENV=production bun src/index.ts",
-    "ngrok": "ngrok http --url=isaiah-tpa.ngrok.app 8069",
-    "image:build": "docker build -t mentra/recorder:latest -t mentra/recorder:$npm_package_version -f docker/Dockerfile .",
-    "image:push": "docker push mentra/recorder:latest && docker push mentra/recorder:$npm_package_version",
-    "image:release": "npm run image:build && npm run image:push",
-    "ghcr:build": "docker build -t ghcr.io/mentra/recorder:latest -t ghcr.io/mentra/recorder:$npm_package_version -f docker/Dockerfile .",
-    "ghcr:push": "docker push ghcr.io/mentra/recorder:latest && docker push ghcr.io/mentra/recorder:$npm_package_version",
-    "ghcr:release": "npm run ghcr:build && npm run ghcr:push"
+    "start": "bun run build:webview && bun src/index.ts",
+    "ngrok": "ngrok http --url=isaiah-tpa.ngrok.app 8069"
   },
   "dependencies": {
     "@mentra/sdk": "^2.1.29-beta.2",
