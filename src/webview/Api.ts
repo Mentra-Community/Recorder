@@ -254,6 +254,21 @@ const api = {
     },
   },
 
+  // Session endpoints
+  session: {
+    isConnected: async (): Promise<boolean> => {
+      try {
+        const response = await axiosInstance.get("/api/session/is-connected", {
+          headers: getAuthHeader(),
+        });
+        return response.data.connected === true;
+      } catch (error) {
+        console.error("[API] Error checking session status:", error);
+        return false;
+      }
+    },
+  },
+
   // Events (SSE) endpoints
   events: {
     connect: (): EventSource | null => {
