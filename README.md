@@ -133,4 +133,4 @@ The application supports the following voice commands via AugmentOS glasses:
 
 ## License
 
-[MIT License](LICENSE)
+[Apache License 2.0](LICENSE)
